@@ -5,21 +5,28 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
   labels:
-    openmcp.cloud/cluster: platform
-  name: providerconfigs.kro.services.openmcp.cloud.services.openmcp.cloud
+    openmcp.cloud/cluster: onboarding
+  name: kroes.kro.services.openmcp.cloud
 spec:
-  group: kro.services.openmcp.cloud.services.openmcp.cloud
+  group: kro.services.openmcp.cloud
   names:
-    kind: ProviderConfig
-    listKind: ProviderConfigList
-    plural: providerconfigs
-    singular: providerconfig
-  scope: Cluster
+    kind: Kro
+    listKind: KroList
+    plural: kroes
+    singular: kro
+  scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: ProviderConfig is the Schema for the providerconfigs API
+        description: Kro is the Schema for the kros API
         properties:
           apiVersion:
             description: |-
@@ -39,52 +46,19 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of ProviderConfig
+            description: spec defines the desired state of Kro
             properties:
-              chartURL:
-                default: oci://registry.k8s.io/kro/charts/kro
-                description: ChartURL is the OCI URL of the Helm chart. Defaults to
-                  the official kro chart.
+              version:
+                description: Version is the version of the controller to install
                 type: string
-              imagePullSecret:
-                description: |-
-                  ImagePullSecret references a secret in the controller's namespace to replicate
-                  into tenant namespaces and wire as secretRef on the OCIRepository.
-                properties:
-                  name:
-                    default: ""
-                    description: |-
-                      Name of the referent.
-                      This field is effectively required, but due to backwards compatibility is
-                      allowed to be empty. Instances of this type with an empty value here are
-                      almost certainly wrong.
-                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                    type: string
-                type: object
-                x-kubernetes-map-type: atomic
-              pollInterval:
-                default: 1m
-                format: duration
-                type: string
-              values:
-                description: Values are arbitrary Helm values passed directly to the
-                  managed HelmRelease.
-                x-kubernetes-preserve-unknown-fields: true
+            required:
+            - version
             type: object
           status:
-            description: status defines the observed state of ProviderConfig
+            description: status defines the observed state of Kro
             properties:
               conditions:
-                description: |-
-                  Conditions represent the current state of the ProviderConfig resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
-                  The status of each condition is one of True, False, or Unknown.
+                description: Conditions contains the conditions.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -140,9 +114,17 @@ spec:
                   - type
                   type: object
                 type: array
-                x-kubernetes-list-map-keys:
-                - type
-                x-kubernetes-list-type: map
+              observedGeneration:
+                description: ObservedGeneration is the generation of this resource
+                  that was last reconciled by the controller.
+                format: int64
+                type: integer
+              phase:
+                description: Phase is the current phase of the resource.
+                type: string
+            required:
+            - observedGeneration
+            - phase
             type: object
         required:
         - spec

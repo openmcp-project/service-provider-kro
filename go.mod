@@ -3,6 +3,9 @@ module github.com/openmcp-project/service-provider-kro
 go 1.26.1
 
 require (
+	github.com/fluxcd/helm-controller/api v1.5.3
+	github.com/fluxcd/pkg/apis/meta v1.25.1
+	github.com/fluxcd/source-controller/api v1.8.1
 	github.com/openmcp-project/controller-utils v0.27.0
 	github.com/openmcp-project/openmcp-operator/api v0.18.1
 	github.com/openmcp-project/openmcp-operator/lib v0.18.1
@@ -20,6 +23,8 @@ require (
 	github.com/antlr4-go/antlr/v4 v4.13.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
+	github.com/fluxcd/pkg/apis/acl v0.9.0 // indirect
+	github.com/fluxcd/pkg/apis/kustomize v1.15.1 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/swag/cmdutils v0.25.5 // indirect
 	github.com/go-openapi/swag/conv v0.25.5 // indirect

@@ -21,6 +21,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// DefaultReleaseName provides the default value for the helm release of the ocm controller.
+const DefaultReleaseName = "kro"
+
 // KroSpec defines the desired state of Kro
 type KroSpec struct {
 	// Version is the version of the controller to install

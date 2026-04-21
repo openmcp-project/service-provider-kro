@@ -1,4 +1,4 @@
-apiVersion: kro.services.openmcp.cloud.services.openmcp.cloud/v1alpha1
+apiVersion: kro.services.openmcp.cloud/v1alpha1
 kind: ProviderConfig
 metadata:
   name: kro

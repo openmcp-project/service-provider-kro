@@ -18,14 +18,40 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"strings"
+	"time"
 
-	ctrl "sigs.k8s.io/controller-runtime"
-
+	helmv2 "github.com/fluxcd/helm-controller/api/v2"
+	"github.com/fluxcd/pkg/apis/meta"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
+	clustersv1alpha1 "github.com/openmcp-project/openmcp-operator/api/clusters/v1alpha1"
+	"github.com/openmcp-project/openmcp-operator/lib/clusteraccess"
+	libutils "github.com/openmcp-project/openmcp-operator/lib/utils"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	apiv1alpha1 "github.com/openmcp-project/service-provider-kro/api/v1alpha1"
 	"github.com/openmcp-project/service-provider-kro/pkg/spruntime"
 )
+
+const (
+	// HelmReleaseName is the name of the helmRelease object created for the controller.
+	HelmReleaseName = "kro-helm-release"
+	// OCIRepositoryName is the name of the oci repository object pointing to the helm chart of the controller.
+	OCIRepositoryName = "kro-oci-repository"
+	// KroSystemNamespace is the default namespace on the target cluster to use to install the Kro controller into.
+	KroSystemNamespace = "kro-system"
+	// requestSuffixMCP is the suffix used for the mcp cluster.
+	requestSuffixMCP = "--mcp"
+)
+
+// clusterAccessName is the name of the access object containing the kubeconfig for the mcp target cluster.
+var clusterAccessName = apiv1alpha1.GroupVersion.Group
 
 // KroReconciler reconciles a Kro object
 type KroReconciler struct {
@@ -38,13 +64,243 @@ type KroReconciler struct {
 }
 
 // CreateOrUpdate is called on every add or update event
-func (r *KroReconciler) CreateOrUpdate(_ context.Context, _ *apiv1alpha1.Kro, _ *apiv1alpha1.ProviderConfig, _ spruntime.ClusterContext) (ctrl.Result, error) {
-	// TODO
+func (r *KroReconciler) CreateOrUpdate(ctx context.Context, svcobj *apiv1alpha1.Kro, providerConfig *apiv1alpha1.ProviderConfig, clusters spruntime.ClusterContext) (ctrl.Result, error) {
+	l := logf.FromContext(ctx)
+	l.Info("Reconciling Kro resource", "name", svcobj.Name)
+	spruntime.StatusProgressing(svcobj, "Reconciling", "Reconcile in progress")
+	tenantNamespace, err := libutils.StableMCPNamespace(svcobj.Name, svcobj.Namespace)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to determine stable namespace for Kro instance: %w", err)
+	}
+
+	l.Info("checking tenantNamespace", "namespace", tenantNamespace)
+
+	if err := r.replicateImagePullSecret(ctx, providerConfig, tenantNamespace); err != nil {
+		spruntime.StatusProgressing(svcobj, spruntime.StatusPhaseFailed, err.Error())
+		return ctrl.Result{}, fmt.Errorf("failed to replicate image pull secret: %w", err)
+	}
+
+	if err := r.createOrUpdateOCIRepository(ctx, svcobj, clusters, tenantNamespace, providerConfig); err != nil {
+		spruntime.StatusProgressing(svcobj, spruntime.StatusPhaseFailed, err.Error())
+		return ctrl.Result{}, fmt.Errorf("failed to reconcile OCI Repository: %w", err)
+	}
+	if err := r.createOrUpdateHelmRelease(ctx, tenantNamespace, svcobj, providerConfig); err != nil {
+		spruntime.StatusProgressing(svcobj, spruntime.StatusPhaseFailed, err.Error())
+		return ctrl.Result{}, fmt.Errorf("failed to reconcile HelmRelease: %w", err)
+	}
+
+	l.Info("Done reconciling Kro resource", "name", svcobj.Name)
+
+	spruntime.StatusReady(svcobj)
 	return ctrl.Result{}, nil
 }
 
 // Delete is called on every delete event
-func (r *KroReconciler) Delete(_ context.Context, _ *apiv1alpha1.Kro, _ *apiv1alpha1.ProviderConfig, _ spruntime.ClusterContext) (ctrl.Result, error) {
-	// TODO
+func (r *KroReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Kro, providerConfig *apiv1alpha1.ProviderConfig, _ spruntime.ClusterContext) (ctrl.Result, error) {
+	spruntime.StatusTerminating(obj)
+
+	tenantNamespace, err := libutils.StableMCPNamespace(obj.Name, obj.Namespace)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to determine stable namespace for Kro instance: %w", err)
+	}
+
+	var objects []client.Object
+	ociRepository := createOciRepository(providerConfig, obj.Spec.Version, tenantNamespace)
+	objects = append(objects, ociRepository)
+	helmRelease, err := r.createHelmRelease(ctx, tenantNamespace, obj, providerConfig)
+	if err != nil {
+		spruntime.StatusProgressing(obj, spruntime.StatusPhaseFailed, err.Error())
+		return ctrl.Result{}, fmt.Errorf("failed to create helm release: %w", err)
+	}
+	objects = append(objects, helmRelease)
+
+	objectsStillExist := false
+	for _, managedObj := range objects {
+		if err := r.PlatformCluster.Client().Delete(ctx, managedObj); client.IgnoreNotFound(err) != nil {
+			spruntime.StatusProgressing(obj, spruntime.StatusPhaseFailed, err.Error())
+			return ctrl.Result{}, fmt.Errorf("delete object failed: %w", err)
+		}
+		// we ignore any other error because we assume that if deleting worked, getting should not fail with anything other than
+		// not found.
+		if err := r.PlatformCluster.Client().Get(ctx, client.ObjectKeyFromObject(managedObj), managedObj); err != nil {
+			objectsStillExist = true
+		}
+	}
+
+	if objectsStillExist {
+		return ctrl.Result{
+			RequeueAfter: time.Second * 10,
+		}, nil
+	}
+
+	spruntime.StatusReady(obj)
 	return ctrl.Result{}, nil
+}
+
+func (r *KroReconciler) getMcpFluxConfig(ctx context.Context, namespace, objectName string) (*meta.SecretKeyReference, error) {
+	mcpAccessRequest := &clustersv1alpha1.AccessRequest{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      clusteraccess.StableRequestNameFromLocalName(clusterAccessName, objectName) + requestSuffixMCP,
+			Namespace: namespace,
+		},
+	}
+
+	if err := r.PlatformCluster.Client().Get(ctx, client.ObjectKeyFromObject(mcpAccessRequest), mcpAccessRequest); err != nil {
+		return nil, fmt.Errorf("failed to get MCP AccessRequest: %w", err)
+	}
+
+	return &meta.SecretKeyReference{
+		Name: mcpAccessRequest.Status.SecretRef.Name,
+		Key:  "kubeconfig",
+	}, nil
+}
+
+func (r *KroReconciler) replicateImagePullSecret(ctx context.Context, providerConfig *apiv1alpha1.ProviderConfig, targetNamespace string) error {
+	ref := providerConfig.GetImagePullSecret()
+	if ref == nil {
+		return nil
+	}
+	platformClient := r.PlatformCluster.Client()
+
+	sourceSecret := &corev1.Secret{}
+	sourceKey := client.ObjectKey{Name: ref.Name, Namespace: r.PodNamespace}
+	if err := platformClient.Get(ctx, sourceKey, sourceSecret); err != nil {
+		return fmt.Errorf("failed to get image pull secret %q from namespace %q: %w", ref.Name, r.PodNamespace, err)
+	}
+
+	targetSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      ref.Name,
+			Namespace: targetNamespace,
+		},
+	}
+	if _, err := ctrl.CreateOrUpdate(ctx, platformClient, targetSecret, func() error {
+		targetSecret.Data = sourceSecret.Data
+		targetSecret.Type = sourceSecret.Type
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to replicate image pull secret %q to namespace %q: %w", ref.Name, targetNamespace, err)
+	}
+
+	return nil
+}
+
+func (r *KroReconciler) createOrUpdateOCIRepository(ctx context.Context, svcobj *apiv1alpha1.Kro, _ spruntime.ClusterContext, namespace string, providerConfig *apiv1alpha1.ProviderConfig) error {
+	ociRepository := createOciRepository(providerConfig, svcobj.Spec.Version, namespace)
+	managedObj := &sourcev1.OCIRepository{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      ociRepository.Name,
+			Namespace: namespace,
+		},
+	}
+	l := logf.FromContext(ctx)
+	l.Info("creating OCI Repository", "object", ociRepository)
+	if _, err := ctrl.CreateOrUpdate(ctx, r.PlatformCluster.Client(), managedObj, func() error {
+		managedObj.Spec = ociRepository.Spec
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *KroReconciler) createOrUpdateHelmRelease(ctx context.Context, namespace string, svcobj *apiv1alpha1.Kro, providerConfig *apiv1alpha1.ProviderConfig) error {
+	helmRelease, err := r.createHelmRelease(ctx, namespace, svcobj, providerConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create helm release: %w", err)
+	}
+	managedObj := &helmv2.HelmRelease{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      helmRelease.Name,
+			Namespace: namespace,
+		},
+	}
+	l := logf.FromContext(ctx)
+	l.Info("creating Helm Release", "object", managedObj)
+	if _, err := ctrl.CreateOrUpdate(ctx, r.PlatformCluster.Client(), managedObj, func() error {
+		managedObj.Spec = helmRelease.Spec
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func ensureOCIScheme(url *string) string {
+	if !strings.HasPrefix(*url, "oci://") {
+		return "oci://" + *url
+	}
+	return *url
+}
+
+func createOciRepository(providerConfig *apiv1alpha1.ProviderConfig, version, namespace string) *sourcev1.OCIRepository {
+	var secretRef *meta.LocalObjectReference
+	if ref := providerConfig.GetImagePullSecret(); ref != nil {
+		secretRef = &meta.LocalObjectReference{Name: ref.Name}
+	}
+
+	return &sourcev1.OCIRepository{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      OCIRepositoryName,
+			Namespace: namespace,
+		},
+		Spec: sourcev1.OCIRepositorySpec{
+			Interval:  metav1.Duration{Duration: time.Minute},
+			URL:       ensureOCIScheme(providerConfig.GetChartURL()),
+			SecretRef: secretRef,
+			Reference: &sourcev1.OCIRepositoryRef{
+				Tag: version,
+			},
+		},
+	}
+}
+
+func (r *KroReconciler) createHelmRelease(ctx context.Context, namespace string, svcobj *apiv1alpha1.Kro, providerConfig *apiv1alpha1.ProviderConfig) (*helmv2.HelmRelease, error) {
+	fluxConfigRef, err := r.getMcpFluxConfig(ctx, namespace, svcobj.Name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get FluxConfig: %w", err)
+	}
+
+	helmValues := providerConfig.GetValues()
+
+	remediationStrategy := helmv2.RollbackRemediationStrategy
+
+	return &helmv2.HelmRelease{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      HelmReleaseName,
+			Namespace: namespace,
+		},
+		Spec: helmv2.HelmReleaseSpec{
+			ReleaseName:      apiv1alpha1.DefaultReleaseName,
+			Interval:         metav1.Duration{Duration: time.Minute},
+			TargetNamespace:  KroSystemNamespace,
+			StorageNamespace: KroSystemNamespace,
+			Install: &helmv2.Install{
+				CRDs:            helmv2.Create,
+				CreateNamespace: true,
+				Remediation: &helmv2.InstallRemediation{
+					Retries: 3,
+				},
+			},
+			Upgrade: &helmv2.Upgrade{
+				CRDs:          helmv2.CreateReplace,
+				CleanupOnFail: true,
+				Remediation: &helmv2.UpgradeRemediation{
+					Retries:  3,
+					Strategy: &remediationStrategy,
+				},
+			},
+			ChartRef: &helmv2.CrossNamespaceSourceReference{
+				Kind:      "OCIRepository",
+				Name:      OCIRepositoryName,
+				Namespace: namespace,
+			},
+			Values: helmValues,
+			KubeConfig: &meta.KubeConfigReference{
+				SecretRef: fluxConfigRef,
+			},
+		},
+	}, nil
 }

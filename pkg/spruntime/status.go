@@ -13,6 +13,8 @@ const (
 	StatusPhaseReady = "Ready"
 	// StatusPhaseProgressing indicates that the resource is not ready and being created or updated.
 	StatusPhaseProgressing = "Progressing"
+	// StatusPhaseFailed indicates that the resource is failing.
+	StatusPhaseFailed = "Failed"
 	// StatusPhaseTerminating indicates that the resource is not ready and in deletion.
 	StatusPhaseTerminating = "Terminating"
 )

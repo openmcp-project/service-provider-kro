@@ -102,3 +102,27 @@ func (o *ProviderConfig) PollInterval() time.Duration {
 	// TODO pollInterval has to be required
 	return o.Spec.PollInterval.Duration
 }
+
+// GetChartURL returns the configured chart URL or DefaultChartURL if unset. Nil-safe.
+func (o *ProviderConfig) GetChartURL() *string {
+	if o == nil {
+		return nil
+	}
+	return o.Spec.ChartURL
+}
+
+// GetValues returns the Helm values or nil if unset. Nil-safe.
+func (o *ProviderConfig) GetValues() *apiextensionsv1.JSON {
+	if o == nil {
+		return nil
+	}
+	return o.Spec.Values
+}
+
+// GetImagePullSecret returns the image pull secret reference or nil if unset. Nil-safe.
+func (o *ProviderConfig) GetImagePullSecret() *corev1.LocalObjectReference {
+	if o == nil {
+		return nil
+	}
+	return o.Spec.ImagePullSecret
+}
