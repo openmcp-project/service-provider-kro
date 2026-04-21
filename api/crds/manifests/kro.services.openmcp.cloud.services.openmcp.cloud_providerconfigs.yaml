@@ -41,19 +41,42 @@ spec:
           spec:
             description: spec defines the desired state of ProviderConfig
             properties:
+              chartURL:
+                default: oci://registry.k8s.io/kro/charts/kro
+                description: ChartURL is the OCI URL of the Helm chart. Defaults to
+                  the official kro chart.
+                type: string
+              imagePullSecret:
+                description: |-
+                  ImagePullSecret references a secret in the controller's namespace to replicate
+                  into tenant namespaces and wire as secretRef on the OCIRepository.
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
               pollInterval:
                 default: 1m
-                description: foo is an example field of ProviderConfig. Edit providerconfig_types.go
-                  to remove/update
                 format: duration
                 type: string
+              values:
+                description: Values are arbitrary Helm values passed directly to the
+                  managed HelmRelease.
+                x-kubernetes-preserve-unknown-fields: true
             type: object
           status:
             description: status defines the observed state of ProviderConfig
             properties:
               conditions:
                 description: |-
-                  conditions represent the current state of the ProviderConfig resource.
+                  Conditions represent the current state of the ProviderConfig resource.
                   Each condition has a unique type and reflects the status of a specific aspect of the resource.
 
                   Standard condition types include:
