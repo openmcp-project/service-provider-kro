@@ -1,6 +1,6 @@
 apiVersion: kro.services.openmcp.cloud.services.openmcp.cloud/v1alpha1
-kind: ProviderConfig
+kind: Kro
 metadata:
-  name: kro
+  name: test-mcp
 spec:
-  pollInterval: 1m
+  foo: bar

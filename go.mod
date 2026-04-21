@@ -1,4 +1,4 @@
-module github.com/openmcp-project/service-provider-template
+module github.com/openmcp-project/service-provider-kro
 
 go 1.26.1
 
