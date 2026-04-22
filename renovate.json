@@ -13,5 +13,19 @@
   },
   "postUpdateOptions": [
     "gomodTidy"
+  ],
+  "customManagers": [
+    {
+      "description": "Kro chart version",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/test/e2e/onboarding/kro\\.yaml/",
+        "/README\\.md/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n\\s+version:\\s+(?<currentValue>\\S+)"
+      ],
+      "versioningTemplate": "semver"
+    }
   ]
 }
