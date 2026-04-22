@@ -34,7 +34,7 @@ spec:
 | `spec.version` | `string` | yes | Chart version tag |
 
 _Note_: The name of the object _**MUST**_ match the name of your MCP cluster offering. This
-is to ensure that no multiple installations can exist for the same cluster.
+ensures that only one installation can exist for a given cluster.
 
 ### ProviderConfig
 
