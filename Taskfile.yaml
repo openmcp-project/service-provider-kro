@@ -9,6 +9,10 @@ vars:
   CHART_COMPONENTS: "[]"
   REPO_URL: 'https://github.com/openmcp-project/service-provider-kro'
   COMMON_SCRIPT_DIR: '{{.ROOT_DIR}}/hack/common'
+  CRDS_COMPONENTS: 'service-provider-kro'
+  CRDS_PATH: '{{.ROOT_DIR}}/api/crds/manifests'
+  LINTER_VERSION: v2.11.3
+  CONTROLLER_GEN_VERSION: v0.20.1
 
 includes:
   shared:
