@@ -64,7 +64,7 @@ type KroReconciler struct {
 }
 
 // CreateOrUpdate is called on every add or update event
-func (r *KroReconciler) CreateOrUpdate(ctx context.Context, svcobj *apiv1alpha1.Kro, providerConfig *apiv1alpha1.ProviderConfig, clusters spruntime.ClusterContext) (ctrl.Result, error) {
+func (r *KroReconciler) CreateOrUpdate(ctx context.Context, svcobj *apiv1alpha1.Kro, providerConfig *apiv1alpha1.ProviderConfig, clusterCtx spruntime.ClusterContext) (ctrl.Result, error) {
 	l := logf.FromContext(ctx)
 	l.Info("Reconciling Kro resource", "name", svcobj.Name)
 	spruntime.StatusProgressing(svcobj, "Reconciling", "Reconcile in progress")
@@ -80,9 +80,13 @@ func (r *KroReconciler) CreateOrUpdate(ctx context.Context, svcobj *apiv1alpha1.
 		return ctrl.Result{}, fmt.Errorf("failed to replicate image pull secret: %w", err)
 	}
 
-	if err := r.createOrUpdateOCIRepository(ctx, svcobj, clusters, tenantNamespace, providerConfig); err != nil {
+	if err := r.createOrUpdateOCIRepository(ctx, svcobj, clusterCtx, tenantNamespace, providerConfig); err != nil {
 		spruntime.StatusProgressing(svcobj, spruntime.StatusPhaseFailed, err.Error())
 		return ctrl.Result{}, fmt.Errorf("failed to reconcile OCI Repository: %w", err)
+	}
+	if err := r.replicateMCPImagePullSecrets(ctx, clusterCtx.MCPCluster, providerConfig); err != nil {
+		spruntime.StatusProgressing(svcobj, spruntime.StatusPhaseFailed, err.Error())
+		return ctrl.Result{}, fmt.Errorf("failed to replicate MCP image pull secrets: %w", err)
 	}
 	if err := r.createOrUpdateHelmRelease(ctx, tenantNamespace, svcobj, providerConfig); err != nil {
 		spruntime.StatusProgressing(svcobj, spruntime.StatusPhaseFailed, err.Error())
@@ -182,6 +186,57 @@ func (r *KroReconciler) replicateImagePullSecret(ctx context.Context, providerCo
 		return fmt.Errorf("failed to replicate image pull secret %q to namespace %q: %w", ref.Name, targetNamespace, err)
 	}
 
+	return nil
+}
+
+// replicateMCPImagePullSecrets copies every secret referenced under
+// `imagePullSecrets` in the ProviderConfig Helm values from the controller's
+// own namespace on the platform cluster into the kro-system namespace on the
+// MCP cluster, so the deployed controller can pull its images from private
+// registries. The target namespace is created if it does not exist.
+//
+// Cleanup is not required: when the MCP is torn down or the chart namespace is
+// removed, the copied secrets are garbage-collected with it.
+func (r *KroReconciler) replicateMCPImagePullSecrets(ctx context.Context, mcpCluster *clusters.Cluster, providerConfig *apiv1alpha1.ProviderConfig) error {
+	helmValues, err := ExtractHelmValues(providerConfig.GetValues())
+	if err != nil {
+		return err
+	}
+	if len(helmValues.ImagePullSecrets) == 0 {
+		return nil
+	}
+	if mcpCluster == nil {
+		return fmt.Errorf("mcp cluster is required to replicate image pull secrets but was nil")
+	}
+
+	platformClient := r.PlatformCluster.Client()
+	mcpClient := mcpCluster.Client()
+
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: KroSystemNamespace}}
+	if _, err := ctrl.CreateOrUpdate(ctx, mcpClient, ns, func() error { return nil }); err != nil {
+		return fmt.Errorf("failed to ensure namespace %q on mcp cluster: %w", KroSystemNamespace, err)
+	}
+
+	for _, ref := range helmValues.ImagePullSecrets {
+		source := &corev1.Secret{}
+		sourceKey := client.ObjectKey{Name: ref.Name, Namespace: r.PodNamespace}
+		if err := platformClient.Get(ctx, sourceKey, source); err != nil {
+			return fmt.Errorf("failed to get image pull secret %q from namespace %q: %w", ref.Name, r.PodNamespace, err)
+		}
+		target := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      ref.Name,
+				Namespace: KroSystemNamespace,
+			},
+		}
+		if _, err := ctrl.CreateOrUpdate(ctx, mcpClient, target, func() error {
+			target.Data = source.Data
+			target.Type = source.Type
+			return nil
+		}); err != nil {
+			return fmt.Errorf("failed to replicate image pull secret %q to mcp namespace %q: %w", ref.Name, KroSystemNamespace, err)
+		}
+	}
 	return nil
 }
 
