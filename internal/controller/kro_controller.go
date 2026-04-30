@@ -95,6 +95,7 @@ func (r *KroReconciler) CreateOrUpdate(ctx context.Context, svcobj *apiv1alpha1.
 
 	l.Info("Done reconciling Kro resource", "name", svcobj.Name)
 
+	svcobj.Status.Resources = managedResources(tenantNamespace, apiv1alpha1.Ready)
 	spruntime.StatusReady(svcobj)
 	return ctrl.Result{}, nil
 }
@@ -107,6 +108,8 @@ func (r *KroReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Kro, provid
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to determine stable namespace for Kro instance: %w", err)
 	}
+
+	obj.Status.Resources = managedResources(tenantNamespace, apiv1alpha1.Terminating)
 
 	var objects []client.Object
 	ociRepository := createOciRepository(providerConfig, obj.Spec.Version, tenantNamespace)
@@ -137,8 +140,39 @@ func (r *KroReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Kro, provid
 		}, nil
 	}
 
+	obj.Status.Resources = nil
 	spruntime.StatusReady(obj)
 	return ctrl.Result{}, nil
+}
+
+// managedResources returns the set of platform-cluster objects this controller
+// owns for a Kro instance, tagged with the given lifecycle phase.
+func managedResources(tenantNamespace string, phase apiv1alpha1.InstancePhase) []apiv1alpha1.ManagedResource {
+	ns := tenantNamespace
+	ociGroup := sourcev1.GroupVersion.Group
+	helmGroup := helmv2.GroupVersion.Group
+	return []apiv1alpha1.ManagedResource{
+		{
+			TypedObjectReference: corev1.TypedObjectReference{
+				APIGroup:  &ociGroup,
+				Kind:      "OCIRepository",
+				Name:      OCIRepositoryName,
+				Namespace: &ns,
+			},
+			Phase:    phase,
+			Location: apiv1alpha1.PlatformCluster,
+		},
+		{
+			TypedObjectReference: corev1.TypedObjectReference{
+				APIGroup:  &helmGroup,
+				Kind:      "HelmRelease",
+				Name:      HelmReleaseName,
+				Namespace: &ns,
+			},
+			Phase:    phase,
+			Location: apiv1alpha1.PlatformCluster,
+		},
+	}
 }
 
 func (r *KroReconciler) getMcpFluxConfig(ctx context.Context, namespace, objectName string) (*meta.SecretKeyReference, error) {

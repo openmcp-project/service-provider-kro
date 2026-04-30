@@ -18,11 +18,44 @@ package v1alpha1
 
 import (
 	commonapi "github.com/openmcp-project/openmcp-operator/api/common"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // DefaultReleaseName provides the default value for the helm release of the kro controller.
 const DefaultReleaseName = "kro"
+
+// InstancePhase is a custom type representing the phase of a service instance.
+type InstancePhase string
+
+// ResourceLocation is a custom type representing the location of a resource.
+type ResourceLocation string
+
+// Constants representing the phases of an instance lifecycle and the
+// locations where managed resources can live.
+const (
+	Pending     InstancePhase = "Pending"
+	Progressing InstancePhase = "Progressing"
+	Ready       InstancePhase = "Ready"
+	Failed      InstancePhase = "Failed"
+	Terminating InstancePhase = "Terminating"
+	Unknown     InstancePhase = "Unknown"
+
+	ManagedControlPlane ResourceLocation = "ManagedControlPlane"
+	PlatformCluster     ResourceLocation = "PlatformCluster"
+)
+
+// ManagedResource defines a kubernetes object with its lifecycle phase.
+type ManagedResource struct {
+	corev1.TypedObjectReference `json:",inline"`
+
+	// +required
+	Phase InstancePhase `json:"phase"`
+	// +optional
+	Message string `json:"message,omitempty"`
+	// +optional
+	Location ResourceLocation `json:"location,omitempty"`
+}
 
 // KroSpec defines the desired state of Kro
 type KroSpec struct {
@@ -34,8 +67,9 @@ type KroSpec struct {
 type KroStatus struct {
 	commonapi.Status `json:",inline"`
 
-	// TODO: We might add a tracking of managed resources
-	//       (See https://github.com/openmcp-project/service-provider-external-secrets/blob/d905cfca93af3c7d36250a4362a15d0447e858ec/api/v1alpha1/externalsecretsoperator_types.go#L56)
+	// Resources managed by this Kro instance.
+	// +optional
+	Resources []ManagedResource `json:"resources,omitempty"`
 }
 
 // Kro is the Schema for the kros API
