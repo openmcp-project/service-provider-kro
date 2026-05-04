@@ -18,6 +18,8 @@ import (
 
 	"github.com/openmcp-project/openmcp-testing/pkg/providers"
 	"github.com/openmcp-project/openmcp-testing/pkg/resources"
+
+	apiv1alpha1 "github.com/openmcp-project/service-provider-kro/api/v1alpha1"
 )
 
 func TestServiceProvider(t *testing.T) {
@@ -72,6 +74,43 @@ func TestServiceProvider(t *testing.T) {
 			}
 			if err := wait.For(conditions.Match(ociRepo, config, "Ready", corev1.ConditionTrue), wait.WithTimeout(2*time.Minute)); err != nil {
 				t.Errorf("OCIRepository not ready: %v", err)
+			}
+
+			return ctx
+		}).
+		Assess("resources for the kro object contain helm release and oci repository", func(ctx context.Context, t *testing.T, config *envconf.Config) context.Context {
+			onboardingConfig, err := clusterutils.OnboardingConfig()
+			if err != nil {
+				t.Error(err)
+				return ctx
+			}
+
+			scheme := onboardingConfig.Client().Resources().GetScheme()
+			if err := apiv1alpha1.AddToScheme(scheme); err != nil {
+				t.Errorf("failed to register kro scheme: %v", err)
+				return ctx
+			}
+
+			kro := &apiv1alpha1.Kro{}
+			if err := onboardingConfig.Client().Resources().Get(ctx, mcpName, corev1.NamespaceDefault, kro); err != nil {
+				t.Errorf("failed to get Kro object: %v", err)
+				return ctx
+			}
+
+			var hasOCI, hasHelm bool
+			for _, r := range kro.Status.Resources {
+				switch r.Kind {
+				case "OCIRepository":
+					hasOCI = true
+				case "HelmRelease":
+					hasHelm = true
+				}
+			}
+			if !hasOCI {
+				t.Errorf("Kro status resources do not contain OCIRepository, got: %v", kro.Status.Resources)
+			}
+			if !hasHelm {
+				t.Errorf("Kro status resources do not contain HelmRelease, got: %v", kro.Status.Resources)
 			}
 
 			return ctx
