@@ -195,18 +195,18 @@ func (r *KroReconciler) observeManagedResources(ctx context.Context, tenantNames
 	helmGroup := helmv2.GroupVersion.Group
 	platformClient := r.PlatformCluster.Client()
 
-	ociPhase, ociMsg, ociErr := observeFluxResourcePhase(ctx, platformClient,
+	ociPhase, ociMsg, err := observeFluxResourcePhase(ctx, platformClient,
 		client.ObjectKey{Name: OCIRepositoryName, Namespace: tenantNamespace},
 		&sourcev1.OCIRepository{})
-	if ociErr != nil {
-		return nil, fmt.Errorf("observing OCIRepository: %w", ociErr)
+	if err != nil {
+		return nil, fmt.Errorf("observing OCIRepository: %w", err)
 	}
 
-	hrPhase, hrMsg, hrErr := observeFluxResourcePhase(ctx, platformClient,
+	hrPhase, hrMsg, err := observeFluxResourcePhase(ctx, platformClient,
 		client.ObjectKey{Name: HelmReleaseName, Namespace: tenantNamespace},
 		&helmv2.HelmRelease{})
-	if hrErr != nil {
-		return nil, fmt.Errorf("observing HelmRelease: %w", hrErr)
+	if err != nil {
+		return nil, fmt.Errorf("observing HelmRelease: %w", err)
 	}
 
 	return []apiv1alpha1.ManagedResource{
