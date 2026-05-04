@@ -67,7 +67,7 @@ type KroSpec struct {
 type KroStatus struct {
 	commonapi.Status `json:",inline"`
 
-	// Resources managed by this Kro instance.
+	// Resources managed by this service provider Kro instance.
 	// +optional
 	Resources []ManagedResource `json:"resources,omitempty"`
 }

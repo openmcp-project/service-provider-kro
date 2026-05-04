@@ -123,7 +123,7 @@ spec:
                 description: Phase is the current phase of the resource.
                 type: string
               resources:
-                description: Resources managed by this Kro instance.
+                description: Resources managed by this service provider Kro instance.
                 items:
                   description: ManagedResource defines a kubernetes object with its
                     lifecycle phase.
