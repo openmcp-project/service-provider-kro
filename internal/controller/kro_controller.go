@@ -100,16 +100,13 @@ func (r *KroReconciler) CreateOrUpdate(ctx context.Context, svcobj *apiv1alpha1.
 
 	ociPhase, ociMsg := resourceStatus(ociRepo.Status.Conditions)
 	hrPhase, hrMsg := resourceStatus(helmRel.Status.Conditions)
-	ns := tenantNamespace
-	ociGroup := sourcev1.GroupVersion.Group
-	helmGroup := helmv2.GroupVersion.Group
 	svcobj.Status.Resources = []apiv1alpha1.ManagedResource{
 		{
 			TypedObjectReference: corev1.TypedObjectReference{
-				APIGroup:  &ociGroup,
+				APIGroup:  new(sourcev1.GroupVersion.Group),
 				Kind:      "OCIRepository",
 				Name:      OCIRepositoryName,
-				Namespace: &ns,
+				Namespace: new(tenantNamespace),
 			},
 			Phase:    ociPhase,
 			Message:  ociMsg,
@@ -117,10 +114,10 @@ func (r *KroReconciler) CreateOrUpdate(ctx context.Context, svcobj *apiv1alpha1.
 		},
 		{
 			TypedObjectReference: corev1.TypedObjectReference{
-				APIGroup:  &helmGroup,
+				APIGroup:  new(helmv2.GroupVersion.Group),
 				Kind:      "HelmRelease",
 				Name:      HelmReleaseName,
-				Namespace: &ns,
+				Namespace: new(tenantNamespace),
 			},
 			Phase:    hrPhase,
 			Message:  hrMsg,
@@ -186,12 +183,10 @@ func (r *KroReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Kro, provid
 // owns for a Kro instance, tagged with the given lifecycle phase.
 func managedResources(tenantNamespace string, phase apiv1alpha1.InstancePhase) []apiv1alpha1.ManagedResource {
 	ns := tenantNamespace
-	ociGroup := sourcev1.GroupVersion.Group
-	helmGroup := helmv2.GroupVersion.Group
 	return []apiv1alpha1.ManagedResource{
 		{
 			TypedObjectReference: corev1.TypedObjectReference{
-				APIGroup:  &ociGroup,
+				APIGroup:  new(sourcev1.GroupVersion.Group),
 				Kind:      "OCIRepository",
 				Name:      OCIRepositoryName,
 				Namespace: &ns,
@@ -201,7 +196,7 @@ func managedResources(tenantNamespace string, phase apiv1alpha1.InstancePhase) [
 		},
 		{
 			TypedObjectReference: corev1.TypedObjectReference{
-				APIGroup:  &helmGroup,
+				APIGroup:  new(helmv2.GroupVersion.Group),
 				Kind:      "HelmRelease",
 				Name:      HelmReleaseName,
 				Namespace: &ns,
@@ -404,8 +399,6 @@ func (r *KroReconciler) createHelmRelease(ctx context.Context, namespace string,
 
 	helmValues := providerConfig.GetValues()
 
-	remediationStrategy := helmv2.RollbackRemediationStrategy
-
 	return &helmv2.HelmRelease{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      HelmReleaseName,
@@ -428,7 +421,7 @@ func (r *KroReconciler) createHelmRelease(ctx context.Context, namespace string,
 				CleanupOnFail: true,
 				Remediation: &helmv2.UpgradeRemediation{
 					Retries:  3,
-					Strategy: &remediationStrategy,
+					Strategy: new(helmv2.RollbackRemediationStrategy),
 				},
 			},
 			ChartRef: &helmv2.CrossNamespaceSourceReference{
