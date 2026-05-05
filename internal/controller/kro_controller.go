@@ -182,14 +182,13 @@ func (r *KroReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Kro, provid
 // managedResources returns the set of platform-cluster objects this controller
 // owns for a Kro instance, tagged with the given lifecycle phase.
 func managedResources(tenantNamespace string, phase apiv1alpha1.InstancePhase) []apiv1alpha1.ManagedResource {
-	ns := tenantNamespace
 	return []apiv1alpha1.ManagedResource{
 		{
 			TypedObjectReference: corev1.TypedObjectReference{
 				APIGroup:  new(sourcev1.GroupVersion.Group),
 				Kind:      "OCIRepository",
 				Name:      OCIRepositoryName,
-				Namespace: &ns,
+				Namespace: new(tenantNamespace),
 			},
 			Phase:    phase,
 			Location: apiv1alpha1.PlatformCluster,
@@ -199,7 +198,7 @@ func managedResources(tenantNamespace string, phase apiv1alpha1.InstancePhase) [
 				APIGroup:  new(helmv2.GroupVersion.Group),
 				Kind:      "HelmRelease",
 				Name:      HelmReleaseName,
-				Namespace: &ns,
+				Namespace: new(tenantNamespace),
 			},
 			Phase:    phase,
 			Location: apiv1alpha1.PlatformCluster,
