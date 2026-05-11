@@ -52,20 +52,13 @@ spec:
   imagePullSecret:
     name: my-registry-secret
   values:
-    rbac:
-      mode: aggregation
-    deployment:
-      resources:
-        limits:
-          cpu: 500m
-          memory: 512Mi
-        requests:
-          cpu: 128m
-          memory: 128Mi
-    config:
-      resourceGraphDefinitionConcurrentReconciles: 2
-      dynamicControllerConcurrentReconciles: 2
-      logLevel: "info"
+    # See https://github.com/kubernetes-sigs/kro/blob/main/helm/values.yaml
+    # for all available configuration options including:
+    # - rbac.mode: "unrestricted" (default) or "aggregation", see https://kro.run/docs/advanced/access-control
+    # - deployment.resources: CPU/memory limits and requests
+    # - config.resourceGraphDefinitionConcurrentReconciles: parallel RGD reconcilers
+    # - config.dynamicControllerConcurrentReconciles: parallel dynamic controller reconcilers
+    # - config.logLevel: "info", "debug", etc.
 ```
 
 #### `spec`
