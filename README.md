@@ -26,7 +26,7 @@ metadata:
   name: mcp-01 # must match your MCP cluster so it will track the right cluster
 spec:
   # renovate: datasource=docker depName=registry.k8s.io/kro/charts/kro
-  version: 0.9.1
+  version: 0.9.2
 ```
 
 | Field | Type | Required | Description |
