@@ -20,6 +20,7 @@ import (
 	commonapi "github.com/openmcp-project/openmcp-operator/api/common"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // DefaultReleaseName provides the default value for the helm release of the kro controller.
@@ -104,7 +105,10 @@ type KroList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&Kro{}, &KroList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(GroupVersion, &Kro{}, &KroList{})
+		return nil
+	})
 }
 
 // Finalizer returns the finalizer string for the Kro resource
