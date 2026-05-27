@@ -163,7 +163,7 @@ func (r *KroReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Kro, provid
 		}
 		// we ignore any other error because we assume that if deleting worked, getting should not fail with anything other than
 		// not found.
-		if err := r.PlatformCluster.Client().Get(ctx, client.ObjectKeyFromObject(managedObj), managedObj); err != nil {
+		if err := r.PlatformCluster.Client().Get(ctx, client.ObjectKeyFromObject(managedObj), managedObj); client.IgnoreNotFound(err) != nil {
 			objectsStillExist = true
 		}
 	}
