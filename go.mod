@@ -7,8 +7,8 @@ require (
 	github.com/fluxcd/pkg/apis/meta v1.28.0
 	github.com/fluxcd/source-controller/api v1.8.5
 	github.com/openmcp-project/controller-utils v0.29.0
-	github.com/openmcp-project/openmcp-operator/api v0.20.0
-	github.com/openmcp-project/openmcp-operator/lib v0.20.0
+	github.com/openmcp-project/openmcp-operator/api v0.21.0
+	github.com/openmcp-project/openmcp-operator/lib v0.21.0
 	github.com/stretchr/testify v1.11.1
 	k8s.io/api v0.36.1
 	k8s.io/apimachinery v0.36.1
