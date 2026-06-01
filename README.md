@@ -20,7 +20,7 @@ When a `Kro` resource is created on the onboarding cluster, the controller:
 The domain service API. Created on the onboarding cluster, one per tenant.
 
 ```yaml
-apiVersion: kro.services.openmcp.cloud/v1alpha1
+apiVersion: kro.services.open-control-plane.io/v1alpha1
 kind: Kro
 metadata:
   name: mcp-01 # must match your MCP cluster so it will track the right cluster
@@ -42,7 +42,7 @@ Cluster-scoped operational configuration. Controls the chart location, image pul
 secret replication, and Helm values passed to managed HelmReleases.
 
 ```yaml
-apiVersion: kro.services.openmcp.cloud/v1alpha1
+apiVersion: kro.services.open-control-plane.io/v1alpha1
 kind: ProviderConfig
 metadata:
   name: kro
