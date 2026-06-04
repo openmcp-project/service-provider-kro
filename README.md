@@ -5,6 +5,23 @@ An [openMCP](https://github.com/openmcp-project) Service Provider that installs 
 
 [![REUSE status](https://api.reuse.software/badge/github.com/openmcp-project/service-provider-kro)](https://api.reuse.software/info/github.com/openmcp-project/service-provider-kro)
 
+## Quality Criteria
+
+[![Quality: Incubating](https://img.shields.io/badge/Quality-Incubating-3d9970?style=flat-square&labelColor=555)](https://open-control-plane.io/developers/serviceprovider/quality-criteria)
+
+| Criterion                         | Status  | Notes                                                                                                       |
+| --------------------------------- | :----:  | ----------------------------------------------------------------------------------------------------------- |
+| Deletion behaviour                |   ⚠️    | Finalizer is wired up; blocking deletion when kro-managed CRs still exist is not verified.                  |
+| Status reporting & error messages |   ✅    |                                                                                                             |
+| Operation annotations             |   ❌    | `openmcp.cloud/operation` (pause / force-reconcile) annotations are not honoured.                           |
+| API stability policy              |   ✅    |                                                                                                             |
+| Custom CA support                 |   ❌    | Custom CA bundle propagation to kro components is not implemented.                                          |
+| Release artifacts (image + OCM)   |   ✅    |                                                                                                             |
+| Testing                           |   ✅    |                                                                                                             |
+| Ownership and maintenance docs    |   ✅    |                                                                                                             |
+
+See the [OpenControlPlane Quality Criteria](https://open-control-plane.io/developers/serviceprovider/quality-criteria) for definitions.
+
 ## How It Works
 
 When a `Kro` resource is created on the onboarding cluster, the controller:
