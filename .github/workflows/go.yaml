@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           submodules: recursive
 
@@ -22,7 +22,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Install Flux CLI
-        uses: fluxcd/flux2/action@8c41d5b56d93d566cab8ae1ddc53580bb0da72c4 # main
+        uses: fluxcd/flux2/action@04b23241e18674cd702b7793392e747288c817ab # main
 
       - name: Install Task
         uses: arduino/setup-task@v2
