@@ -9,16 +9,16 @@ An [openMCP](https://github.com/openmcp-project) Service Provider that installs 
 
 [![Quality: Incubating](https://img.shields.io/badge/Quality-Incubating-3d9970?style=flat-square&labelColor=555)](https://open-control-plane.io/developers/serviceprovider/quality-criteria)
 
-| Criterion                         | Status  | Notes                                                                                                       |
-| --------------------------------- | :----:  | ----------------------------------------------------------------------------------------------------------- |
-| Deletion behaviour                |   ⚠️    | Finalizer is wired up; blocking deletion when kro-managed CRs still exist is not verified.                  |
-| Status reporting & error messages |   ✅    |                                                                                                             |
-| Operation annotations             |   ❌    | `openmcp.cloud/operation` (pause / force-reconcile) annotations are not honoured.                           |
-| API stability policy              |   ✅    |                                                                                                             |
-| Custom CA support                 |   ❌    | Custom CA bundle propagation to kro components is not implemented.                                          |
-| Release artifacts (image + OCM)   |   ✅    |                                                                                                             |
-| Testing                           |   ✅    |                                                                                                             |
-| Ownership and maintenance docs    |   ✅    |                                                                                                             |
+| Criterion                         | Status  | Notes                                                                                                                                                                                                                                                                                 |
+| --------------------------------- | :----:  | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Deletion behaviour                |   ⚠️    | A finalizer ensures the Service Provider managed resources like Flux' `OCIRepository` and `HelmRelease` are cleaned-up. But there is no behaviour that ensures deletion is blocked if custom resources (e.g. kro' `ResourceGraphDefinition` objects) in a `ControlPlane` still exist. |
+| Status reporting & error messages |   ✅    |                                                                                                                                                                                                                                                                                       |
+| Operation annotations             |   ❌    | `openmcp.cloud/operation` (pause / force-reconcile) annotations are not honoured.                                                                                                                                                                                                     |
+| API stability policy              |   ✅    |                                                                                                                                                                                                                                                                                       |
+| Custom CA support                 |   ❌    | Custom CA bundle propagation to kro components is not implemented.                                                                                                                                                                                                                    |
+| Release artifacts (image + OCM)   |   ✅    |                                                                                                                                                                                                                                                                                       |
+| Testing                           |   ✅    |                                                                                                                                                                                                                                                                                       |
+| Ownership and maintenance docs    |   ✅    |                                                                                                                                                                                                                                                                                       |
 
 See the [OpenControlPlane Quality Criteria](https://open-control-plane.io/developers/serviceprovider/quality-criteria) for definitions.
 
@@ -46,9 +46,9 @@ spec:
   version: 0.9.2
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `spec.version` | `string` | yes | Chart version tag |
+| Field          | Type     | Required | Description       |
+| -------------- | -------- | -------- | ----------------- |
+| `spec.version` | `string` | yes      | Chart version tag |
 
 _Note_: The name of the object _**MUST**_ match the name of your MCP cluster offering. This
 ensures that only one installation can exist for a given cluster.
@@ -80,12 +80,12 @@ spec:
 
 #### `spec`
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `chartURL` | `string` | no | `oci://registry.k8s.io/kro/charts/kro` | OCI URL of the Helm chart (`oci://` prefix is added automatically if missing) |
-| `pollInterval` | `duration` | no | `1m` | How often the controller polls for changes |
-| `imagePullSecret` | `LocalObjectReference` | no | — | Secret to replicate from the controller's namespace into tenant namespaces and set as `secretRef` on the `OCIRepository` |
-| `values` | `object` | no | — | Arbitrary Helm values passed directly to the HelmRelease |
+| Field             | Type                   | Required | Default                                | Description                                                                                                              |
+| ----------------- | ---------------------- | -------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `chartURL`        | `string`               | no       | `oci://registry.k8s.io/kro/charts/kro` | OCI URL of the Helm chart (`oci://` prefix is added automatically if missing)                                            |
+| `pollInterval`    | `duration`             | no       | `1m`                                   | How often the controller polls for changes                                                                               |
+| `imagePullSecret` | `LocalObjectReference` | no       | —                                      | Secret to replicate from the controller's namespace into tenant namespaces and set as `secretRef` on the `OCIRepository` |
+| `values`          | `object`               | no       | —                                      | Arbitrary Helm values passed directly to the HelmRelease                                                                 |
 
 ## What is Kro
 
