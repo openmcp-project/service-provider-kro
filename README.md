@@ -1,6 +1,6 @@
 # service-provider-kro
 
-An [openMCP](https://github.com/openmcp-project) Service Provider that installs and manages
+An [OpenControlPlane](https://github.com/openmcp-project) Service Provider that installs and manages
 [Kro](https://kro.run) on workload clusters via Flux HelmReleases.
 
 [![REUSE status](https://api.reuse.software/badge/github.com/openmcp-project/service-provider-kro)](https://api.reuse.software/info/github.com/openmcp-project/service-provider-kro)
