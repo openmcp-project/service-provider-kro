@@ -240,7 +240,7 @@ func main() {
 		},
 	}
 	clusterAccessManager := clusteraccess.NewClusterAccessManager(platformCluster.Client(),
-		"kro.kro.services.openmcp.cloud", os.Getenv("POD_NAMESPACE"))
+		controller.ClusterAccessName, os.Getenv("POD_NAMESPACE"))
 	clusterAccessManager.WithLogger(&log).
 		WithInterval(10 * time.Second).
 		WithTimeout(30 * time.Minute)

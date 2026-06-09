@@ -51,8 +51,11 @@ const (
 	requestSuffixMCP = "--mcp"
 )
 
-// clusterAccessName is the name of the access object containing the kubeconfig for the mcp target cluster.
-var clusterAccessName = apiv1alpha1.GroupVersion.Group
+// TODO: In order to avoid migration conflicts, the cluster access name must stay on the old api version.
+//	     We need to change this once we know how we can safely transition existing access requests.
+
+// ClusterAccessName is the name of the access object containing the kubeconfig for the mcp target cluster.
+var ClusterAccessName = "kro.services.openmcp.cloud"
 
 // KroReconciler reconciles a Kro object
 type KroReconciler struct {
@@ -222,7 +225,7 @@ func resourceStatus(conditions []metav1.Condition) (apiv1alpha1.InstancePhase, s
 func (r *KroReconciler) getMcpFluxConfig(ctx context.Context, namespace, objectName string) (*meta.SecretKeyReference, error) {
 	mcpAccessRequest := &clustersv1alpha1.AccessRequest{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      clusteraccess.StableRequestNameFromLocalName(clusterAccessName, objectName) + requestSuffixMCP,
+			Name:      clusteraccess.StableRequestNameFromLocalName(ClusterAccessName, objectName) + requestSuffixMCP,
 			Namespace: namespace,
 		},
 	}
