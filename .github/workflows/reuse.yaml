@@ -7,5 +7,5 @@ permissions:
 
 jobs:
   run_reuse:
-    uses: openmcp-project/build/.github/workflows/reuse.lib.yaml@b502e7a3478ba1944abb4a69aea548d115721e96 # main
+    uses: openmcp-project/build/.github/workflows/reuse.lib.yaml@0853da91ab09626a07d3495f3d31bed3ede22ed5 # main
     secrets: inherit
