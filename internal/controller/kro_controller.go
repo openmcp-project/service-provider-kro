@@ -51,11 +51,8 @@ const (
 	requestSuffixMCP = "--mcp"
 )
 
-// TODO: In order to avoid migration conflicts, the cluster access name must stay on the old api version.
-//	     We need to change this once we know how we can safely transition existing access requests.
-
 // ClusterAccessName is the name of the access object containing the kubeconfig for the mcp target cluster.
-var ClusterAccessName = "kro.services.openmcp.cloud"
+var ClusterAccessName = apiv1alpha1.GroupVersion.Group
 
 // KroReconciler reconciles a Kro object
 type KroReconciler struct {
