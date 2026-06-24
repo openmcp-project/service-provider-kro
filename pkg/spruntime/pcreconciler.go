@@ -23,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
@@ -61,6 +62,7 @@ func (r *PCReconciler[T]) WithUpdateChannel(c chan event.GenericEvent) *PCReconc
 
 // Reconcile acts as a sender to notify receivers about provider config changes .
 func (r *PCReconciler[T]) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log.FromContext(ctx).Info("reconcile provider config")
 	obj := r.emptyObj()
 	notify := event.GenericEvent{}
 	if err := r.platformCluster.Client().Get(ctx, req.NamespacedName, obj); err != nil {
