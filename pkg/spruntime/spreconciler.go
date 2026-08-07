@@ -277,11 +277,11 @@ func (r *SPReconciler[T, PC]) delete(ctx context.Context, obj T, pc PC) (ctrl.Re
 	if !accessRequestsInDeletion {
 		clusters, res, err := r.clusters(ctx, req)
 		if err != nil {
-			terminatingWithReason(obj, reasonReconcileError, "cluster cleanup error")
+			StatusTerminatingWithReason(obj, reasonReconcileError, "cluster cleanup error")
 			return ctrl.Result{}, err
 		}
 		if res.RequeueAfter > 0 {
-			terminatingWithReason(obj, "Reconciling", "cluster cleanup")
+			StatusTerminatingWithReason(obj, "Reconciling", "cluster cleanup")
 			return res, nil
 		}
 		res, err = r.serviceProviderReconciler.Delete(ctx, obj, pc, clusters)
@@ -295,7 +295,7 @@ func (r *SPReconciler[T, PC]) delete(ctx context.Context, obj T, pc PC) (ctrl.Re
 	// remove cluster access
 	res, err := r.clusterAccessReconciler.ReconcileDelete(ctx, req)
 	if err != nil {
-		terminatingWithReason(obj, reasonReconcileError, "failed cluster access reconcile delete")
+		StatusTerminatingWithReason(obj, reasonReconcileError, "failed cluster access reconcile delete")
 		return ctrl.Result{}, err
 	}
 	// make sure to not drop the object before cleanup has been done
@@ -305,7 +305,7 @@ func (r *SPReconciler[T, PC]) delete(ctx context.Context, obj T, pc PC) (ctrl.Re
 	// remove finalizer
 	controllerutil.RemoveFinalizer(obj, obj.Finalizer())
 	if err := r.onboardingCluster.Client().Update(ctx, obj); err != nil {
-		terminatingWithReason(obj, reasonReconcileError, "failed to remove finalizer")
+		StatusTerminatingWithReason(obj, reasonReconcileError, "failed to remove finalizer")
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil

@@ -41,35 +41,55 @@ spec:
           spec:
             description: spec defines the desired state of ProviderConfig
             properties:
-              chartURL:
-                default: oci://registry.k8s.io/kro/charts/kro
-                description: ChartURL is the OCI URL of the Helm chart. Defaults to
-                  the official kro chart.
-                type: string
-              imagePullSecret:
-                description: |-
-                  ImagePullSecret references a secret in the controller's namespace to replicate
-                  into tenant namespaces and wire as secretRef on the OCIRepository.
-                properties:
-                  name:
-                    default: ""
-                    description: |-
-                      Name of the referent.
-                      This field is effectively required, but due to backwards compatibility is
-                      allowed to be empty. Instances of this type with an empty value here are
-                      almost certainly wrong.
-                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                    type: string
-                type: object
-                x-kubernetes-map-type: atomic
               pollInterval:
                 default: 1m
+                description: PollInterval at which the controller requeues to detect
+                  drift.
                 format: duration
                 type: string
-              values:
-                description: Values are arbitrary Helm values passed directly to the
-                  managed HelmRelease.
-                x-kubernetes-preserve-unknown-fields: true
+              versions:
+                description: |-
+                  Versions enumerates the kro versions that tenants may request through
+                  Kro.Spec.Version, and maps each of them to the artifacts used to install it.
+                items:
+                  description: KroVersion defines a version of kro that can be installed.
+                  properties:
+                    chartPullSecret:
+                      description: |-
+                        ChartPullSecret is the name of a secret in the controller's namespace holding the
+                        credentials to pull the Helm chart. It is replicated into the tenant namespace and
+                        wired as secretRef on the OCIRepository.
+                        The secret must be of type kubernetes.io/dockerconfigjson.
+                      type: string
+                    chartURL:
+                      default: oci://registry.k8s.io/kro/charts/kro
+                      description: |-
+                        ChartURL is a reference to an OCI repository that hosts the kro Helm chart.
+                        An "oci://" prefix is added automatically when missing.
+                      type: string
+                    chartVersion:
+                      description: ChartVersion is the tag of the Helm chart to install.
+                      type: string
+                    helmValues:
+                      description: |-
+                        HelmValues are arbitrary Helm values passed directly to the managed HelmRelease.
+                        Secrets referenced under `imagePullSecrets` are replicated from the controller's
+                        namespace into the kro namespace on the control plane.
+                      x-kubernetes-preserve-unknown-fields: true
+                    version:
+                      description: Version is the kro version to install.
+                      type: string
+                  required:
+                  - chartVersion
+                  - version
+                  type: object
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - version
+                x-kubernetes-list-type: map
+            required:
+            - versions
             type: object
           status:
             description: status defines the observed state of ProviderConfig

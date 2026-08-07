@@ -17,34 +17,72 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
+	ctrlerrors "github.com/openmcp-project/controller-utils/pkg/errors"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
+const (
+	// DefaultChartURL points to the default location of where the kro chart lives.
+	DefaultChartURL = "oci://registry.k8s.io/kro/charts/kro"
+	// DefaultPollInterval is used when a ProviderConfig does not set spec.pollInterval.
+	DefaultPollInterval = time.Minute
+)
+
+// ErrVersionNotAvailable indicates that a version requested through Kro.Spec.Version is not
+// offered by the ProviderConfig.
+var ErrVersionNotAvailable = fmt.Errorf("%w: requested version is not available", ctrlerrors.ErrInvalidUserInput)
+
 // ProviderConfigSpec defines the desired state of ProviderConfig
 type ProviderConfigSpec struct {
+	// Versions enumerates the kro versions that tenants may request through
+	// Kro.Spec.Version, and maps each of them to the artifacts used to install it.
+	// +required
+	// +kubebuilder:validation:MinItems=1
+	// +listType=map
+	// +listMapKey=version
+	Versions []KroVersion `json:"versions"`
+
+	// PollInterval at which the controller requeues to detect drift.
 	// +optional
 	// +kubebuilder:default:="1m"
 	// +kubebuilder:validation:Format=duration
 	PollInterval *metav1.Duration `json:"pollInterval,omitempty"`
+}
 
-	// ChartURL is the OCI URL of the Helm chart. Defaults to the official kro chart.
+// KroVersion defines a version of kro that can be installed.
+type KroVersion struct {
+	// Version is the kro version to install.
+	// +required
+	Version string `json:"version"`
+
+	// ChartVersion is the tag of the Helm chart to install.
+	// +required
+	ChartVersion string `json:"chartVersion"`
+
+	// ChartURL is a reference to an OCI repository that hosts the kro Helm chart.
+	// An "oci://" prefix is added automatically when missing.
 	// +optional
 	// +kubebuilder:default="oci://registry.k8s.io/kro/charts/kro"
 	ChartURL *string `json:"chartURL,omitempty"`
 
-	// ImagePullSecret references a secret in the controller's namespace to replicate
-	// into tenant namespaces and wire as secretRef on the OCIRepository.
+	// ChartPullSecret is the name of a secret in the controller's namespace holding the
+	// credentials to pull the Helm chart. It is replicated into the tenant namespace and
+	// wired as secretRef on the OCIRepository.
+	// The secret must be of type kubernetes.io/dockerconfigjson.
 	// +optional
-	ImagePullSecret *corev1.LocalObjectReference `json:"imagePullSecret,omitempty"`
+	ChartPullSecret string `json:"chartPullSecret,omitempty"`
 
-	// Values are arbitrary Helm values passed directly to the managed HelmRelease.
+	// HelmValues are arbitrary Helm values passed directly to the managed HelmRelease.
+	// Secrets referenced under `imagePullSecrets` are replicated from the controller's
+	// namespace into the kro namespace on the control plane.
 	// +optional
-	Values *apiextensionsv1.JSON `json:"values,omitempty"`
+	HelmValues *apiextensionsv1.JSON `json:"helmValues,omitempty"`
 }
 
 // ProviderConfigStatus defines the observed state of ProviderConfig.
@@ -101,32 +139,47 @@ func init() {
 	})
 }
 
-// PollInterval returns the poll interval duration from the spec.
+// PollInterval returns the poll interval duration from the spec, falling back to
+// DefaultPollInterval when unset.
 func (o *ProviderConfig) PollInterval() time.Duration {
-	// TODO pollInterval has to be required
+	if o == nil || o.Spec.PollInterval == nil {
+		return DefaultPollInterval
+	}
 	return o.Spec.PollInterval.Duration
 }
 
-// GetChartURL returns the configured chart URL or DefaultChartURL if unset. Nil-safe.
-func (o *ProviderConfig) GetChartURL() *string {
+// ResolveVersion returns the version entry offering the requested tenant facing version.
+func (o *ProviderConfig) ResolveVersion(version string) (KroVersion, error) {
 	if o == nil {
-		return nil
+		return KroVersion{}, fmt.Errorf("%w: %q, no provider config is configured", ErrVersionNotAvailable, version)
 	}
-	return o.Spec.ChartURL
+	availableVersions := make([]string, 0, len(o.Spec.Versions))
+	for _, candidate := range o.Spec.Versions {
+		if candidate.Version == version {
+			return candidate, nil
+		}
+
+		availableVersions = append(availableVersions, candidate.Version)
+	}
+	if len(availableVersions) == 0 {
+		return KroVersion{}, fmt.Errorf("%w: %q, the provider config offers no versions", ErrVersionNotAvailable, version)
+	}
+	return KroVersion{}, fmt.Errorf("%w: %q, available versions are: %s", ErrVersionNotAvailable, version, strings.Join(availableVersions, ", "))
 }
 
-// GetValues returns the Helm values or nil if unset. Nil-safe.
-func (o *ProviderConfig) GetValues() *apiextensionsv1.JSON {
-	if o == nil {
-		return nil
+// GetChartURL returns the chart URL of this version with an "oci://" scheme, falling back
+// to DefaultChartURL when unset.
+func (v KroVersion) GetChartURL() string {
+	if v.ChartURL == nil || *v.ChartURL == "" {
+		return DefaultChartURL
 	}
-	return o.Spec.Values
+	return ensureOCIScheme(*v.ChartURL)
 }
 
-// GetImagePullSecret returns the image pull secret reference or nil if unset. Nil-safe.
-func (o *ProviderConfig) GetImagePullSecret() *corev1.LocalObjectReference {
-	if o == nil {
-		return nil
+// ensureOCIScheme prefixes the given URL with "oci://" unless it already has the scheme.
+func ensureOCIScheme(url string) string {
+	if !strings.HasPrefix(url, "oci://") {
+		return "oci://" + url
 	}
-	return o.Spec.ImagePullSecret
+	return url
 }

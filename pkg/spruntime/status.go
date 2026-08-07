@@ -6,6 +6,8 @@ import (
 )
 
 // TODO: Move status fuctions and constants to separate repository
+// The phases and functions here mirror opencontrolplane-runtime's serviceprovider package,
+// so that move stays a mechanical swap. Do not add phases it does not have.
 const (
 	// ServiceProviderConditionReady is the condition type used when reporting status
 	ServiceProviderConditionReady = "Ready"
@@ -13,8 +15,6 @@ const (
 	StatusPhaseReady = "Ready"
 	// StatusPhaseProgressing indicates that the resource is not ready and being created or updated.
 	StatusPhaseProgressing = "Progressing"
-	// StatusPhaseFailed indicates that the resource is failing.
-	StatusPhaseFailed = "Failed"
 	// StatusPhaseTerminating indicates that the resource is not ready and in deletion.
 	StatusPhaseTerminating = "Terminating"
 
@@ -63,10 +63,11 @@ func StatusTerminating(obj ServiceProviderAPI) {
 // StatusTerminatingMessage indicates terminating (synced false) while surfacing a
 // custom message.
 func StatusTerminatingMessage(obj ServiceProviderAPI, message string) {
-	terminatingWithReason(obj, "Terminating", message)
+	StatusTerminatingWithReason(obj, "Terminating", message)
 }
 
-func terminatingWithReason(obj ServiceProviderAPI, reason, message string) {
+// StatusTerminatingWithReason indicates terminating with synced false and a caller-provided reason and message
+func StatusTerminatingWithReason(obj ServiceProviderAPI, reason, message string) {
 	meta.SetStatusCondition(obj.GetConditions(), metav1.Condition{
 		Type:               ServiceProviderConditionReady,
 		Status:             metav1.ConditionFalse,
