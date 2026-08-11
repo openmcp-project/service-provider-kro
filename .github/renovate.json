@@ -1,12 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "github>openmcp-project/.github:renovate-config",
-    ":enableVulnerabilityAlerts"
+    "github>openmcp-project/.github:renovate-config"
   ],
-  "git-submodules": {
-    "enabled": true
-  },
   "customManagers": [
     {
       "description": "Kro chart version",
