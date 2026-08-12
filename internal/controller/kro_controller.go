@@ -120,23 +120,10 @@ func (r *KroReconciler) CreateOrUpdate(ctx context.Context, svcobj *apiv1alpha1.
 		spruntime.StatusProgressing(svcobj, conditionReasonError, err.Error())
 		return ctrl.Result{}, fmt.Errorf("failed to reconcile OCI Repository: %w", err)
 	}
-	if err := r.replicateImagePullSecrets(ctx, clusterCtx.WorkloadCluster, version.HelmValues); err != nil {
-		spruntime.StatusProgressing(svcobj, conditionReasonError, err.Error())
-		return ctrl.Result{}, fmt.Errorf("failed to replicate image pull secrets to workload cluster: %w", err)
-	}
-	if err := r.replicateMCPKubeconfig(ctx, clusterCtx); err != nil {
-		spruntime.StatusProgressing(svcobj, conditionReasonError, err.Error())
-		return ctrl.Result{}, fmt.Errorf("failed to replicate MCP kubeconfig to workload cluster: %w", err)
-	}
-	mcpCRDsRel, err := r.createOrUpdateMCPCRDsHelmRelease(ctx, tenantNamespace, clusterCtx)
+	mcpCRDsRel, helmRel, err := r.reconcileHelmReleases(ctx, tenantNamespace, svcobj, version.HelmValues, clusterCtx)
 	if err != nil {
 		spruntime.StatusProgressing(svcobj, conditionReasonError, err.Error())
-		return ctrl.Result{}, fmt.Errorf("failed to reconcile MCP CRDs HelmRelease: %w", err)
-	}
-	helmRel, err := r.createOrUpdateHelmRelease(ctx, tenantNamespace, svcobj, version.HelmValues)
-	if err != nil {
-		spruntime.StatusProgressing(svcobj, conditionReasonError, err.Error())
-		return ctrl.Result{}, fmt.Errorf("failed to reconcile HelmRelease: %w", err)
+		return ctrl.Result{}, err
 	}
 
 	l.Info("Done reconciling Kro resource", "name", svcobj.Name)
@@ -187,6 +174,27 @@ func (r *KroReconciler) CreateOrUpdate(ctx context.Context, svcobj *apiv1alpha1.
 	}
 	// The SPReconciler wrapper applies PollInterval as a fallback RequeueAfter.
 	return ctrl.Result{}, nil
+}
+
+// Delete is called on every delete event.
+// reconcileHelmReleases replicates workload cluster prerequisites and ensures
+// both HelmReleases (workload controller + MCP CRDs) exist.
+func (r *KroReconciler) reconcileHelmReleases(ctx context.Context, tenantNamespace string, svcobj *apiv1alpha1.Kro, helmValues *apiextensionsv1.JSON, clusterCtx spruntime.ClusterContext) (*helmv2.HelmRelease, *helmv2.HelmRelease, error) {
+	if err := r.replicateImagePullSecrets(ctx, clusterCtx.WorkloadCluster, helmValues); err != nil {
+		return nil, nil, fmt.Errorf("failed to replicate image pull secrets to workload cluster: %w", err)
+	}
+	if err := r.replicateMCPKubeconfig(ctx, clusterCtx); err != nil {
+		return nil, nil, fmt.Errorf("failed to replicate MCP kubeconfig to workload cluster: %w", err)
+	}
+	mcpCRDsRel, err := r.createOrUpdateMCPCRDsHelmRelease(ctx, tenantNamespace, clusterCtx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to reconcile MCP CRDs HelmRelease: %w", err)
+	}
+	helmRel, err := r.createOrUpdateHelmRelease(ctx, tenantNamespace, svcobj, helmValues)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to reconcile HelmRelease: %w", err)
+	}
+	return mcpCRDsRel, helmRel, nil
 }
 
 // Delete is called on every delete event.
