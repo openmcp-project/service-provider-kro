@@ -20,6 +20,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	helmv2 "github.com/fluxcd/helm-controller/api/v2"
+	"github.com/fluxcd/pkg/apis/kustomize"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 )
@@ -42,4 +44,103 @@ func ExtractHelmValues(values *apiextensionsv1.JSON) (*HelmValues, error) {
 		return nil, fmt.Errorf("failed to parse helm values: %w", err)
 	}
 	return out, nil
+}
+
+// kubeconfigPostRenderers returns the Flux PostRenderers that inject the
+// KUBECONFIG environment variable, volume, and volumeMount into the kro
+// deployment. The kro chart does not template extraVolumes/extraVolumeMounts/extraEnv,
+// so we patch everything via kustomize strategic merge.
+func kubeconfigPostRenderers() []helmv2.PostRenderer {
+	kubeconfigFilePath := mcpKubeconfigMountPath + "/" + mcpKubeconfigKey
+	patch := fmt.Sprintf(`apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kro
+spec:
+  template:
+    spec:
+      containers:
+        - name: kro
+          env:
+            - name: KUBECONFIG
+              value: %s
+          volumeMounts:
+            - name: mcp-kubeconfig
+              mountPath: %s
+              readOnly: true
+      volumes:
+        - name: mcp-kubeconfig
+          secret:
+            secretName: %s`, kubeconfigFilePath, mcpKubeconfigMountPath, mcpKubeconfigSecretName)
+
+	return []helmv2.PostRenderer{
+		{
+			Kustomize: &helmv2.Kustomize{
+				Patches: []kustomize.Patch{
+					{
+						Patch: patch,
+						Target: &kustomize.Selector{
+							Group:   "apps",
+							Version: "v1",
+							Kind:    "Deployment",
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// crdOnlyPostRenderers returns PostRenderers that strip all non-CRD resources
+// from the rendered chart. Used for the MCP-targeting HelmRelease that only
+// needs to install CRDs (from the chart's crds/ directory).
+func crdOnlyPostRenderers() []helmv2.PostRenderer {
+	targets := []kustomize.Patch{
+		{
+			Patch: "$patch: delete\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: kro\n",
+			Target: &kustomize.Selector{
+				Group:   "apps",
+				Version: "v1",
+				Kind:    "Deployment",
+			},
+		},
+		{
+			Patch: "$patch: delete\napiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: kro\n",
+			Target: &kustomize.Selector{
+				Version: "v1",
+				Kind:    "ServiceAccount",
+			},
+		},
+		{
+			Patch: "$patch: delete\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRole\nmetadata:\n  name: kro\n",
+			Target: &kustomize.Selector{
+				Group:   "rbac.authorization.k8s.io",
+				Version: "v1",
+				Kind:    "ClusterRole",
+			},
+		},
+		{
+			Patch: "$patch: delete\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRoleBinding\nmetadata:\n  name: kro\n",
+			Target: &kustomize.Selector{
+				Group:   "rbac.authorization.k8s.io",
+				Version: "v1",
+				Kind:    "ClusterRoleBinding",
+			},
+		},
+		{
+			Patch: "$patch: delete\napiVersion: v1\nkind: Service\nmetadata:\n  name: kro\n",
+			Target: &kustomize.Selector{
+				Version: "v1",
+				Kind:    "Service",
+			},
+		},
+	}
+
+	return []helmv2.PostRenderer{
+		{
+			Kustomize: &helmv2.Kustomize{
+				Patches: targets,
+			},
+		},
+	}
 }

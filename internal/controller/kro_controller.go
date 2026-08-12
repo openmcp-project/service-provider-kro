@@ -47,12 +47,20 @@ import (
 const (
 	// HelmReleaseName is the name of the helmRelease object created for the controller.
 	HelmReleaseName = "kro-helm-release"
+	// MCPHelmReleaseName is the name of the helmRelease that installs only CRDs onto the MCP cluster.
+	MCPHelmReleaseName = "kro-mcp-crds-helm-release"
 	// OCIRepositoryName is the name of the oci repository object pointing to the helm chart of the controller.
 	OCIRepositoryName = "kro-oci-repository"
 	// KroSystemNamespace is the default namespace on the target cluster to use to install the Kro controller into.
 	KroSystemNamespace = "kro-system"
-	// requestSuffixMCP is the suffix used for the mcp cluster.
-	requestSuffixMCP = "--mcp"
+	// requestSuffixWorkload is the suffix used for the workload cluster.
+	requestSuffixWorkload = "--wl"
+	// mcpKubeconfigSecretName is the name of the secret holding the MCP kubeconfig on the workload cluster.
+	mcpKubeconfigSecretName = "kro-mcp-kubeconfig"
+	// mcpKubeconfigMountPath is where the MCP kubeconfig is mounted inside the kro pod.
+	mcpKubeconfigMountPath = "/etc/kro/kubeconfig"
+	// mcpKubeconfigKey is the key within the kubeconfig secret.
+	mcpKubeconfigKey = "kubeconfig"
 
 	// kroAPIGroup is the API group under which kro serves its custom resources.
 	kroAPIGroup = "kro.run"
@@ -112,9 +120,18 @@ func (r *KroReconciler) CreateOrUpdate(ctx context.Context, svcobj *apiv1alpha1.
 		spruntime.StatusProgressing(svcobj, conditionReasonError, err.Error())
 		return ctrl.Result{}, fmt.Errorf("failed to reconcile OCI Repository: %w", err)
 	}
-	if err := r.replicateMCPImagePullSecrets(ctx, clusterCtx.MCPCluster, version.HelmValues); err != nil {
+	if err := r.replicateImagePullSecrets(ctx, clusterCtx.WorkloadCluster, version.HelmValues); err != nil {
 		spruntime.StatusProgressing(svcobj, conditionReasonError, err.Error())
-		return ctrl.Result{}, fmt.Errorf("failed to replicate MCP image pull secrets: %w", err)
+		return ctrl.Result{}, fmt.Errorf("failed to replicate image pull secrets to workload cluster: %w", err)
+	}
+	if err := r.replicateMCPKubeconfig(ctx, clusterCtx); err != nil {
+		spruntime.StatusProgressing(svcobj, conditionReasonError, err.Error())
+		return ctrl.Result{}, fmt.Errorf("failed to replicate MCP kubeconfig to workload cluster: %w", err)
+	}
+	mcpCRDsRel, err := r.createOrUpdateMCPCRDsHelmRelease(ctx, tenantNamespace, clusterCtx)
+	if err != nil {
+		spruntime.StatusProgressing(svcobj, conditionReasonError, err.Error())
+		return ctrl.Result{}, fmt.Errorf("failed to reconcile MCP CRDs HelmRelease: %w", err)
 	}
 	helmRel, err := r.createOrUpdateHelmRelease(ctx, tenantNamespace, svcobj, version.HelmValues)
 	if err != nil {
@@ -126,6 +143,7 @@ func (r *KroReconciler) CreateOrUpdate(ctx context.Context, svcobj *apiv1alpha1.
 
 	ociPhase, ociMsg := resourceStatus(ociRepo.Status.Conditions)
 	hrPhase, hrMsg := resourceStatus(helmRel.Status.Conditions)
+	mcpCRDsPhase, mcpCRDsMsg := resourceStatus(mcpCRDsRel.Status.Conditions)
 	svcobj.Status.Resources = []apiv1alpha1.ManagedResource{
 		{
 			TypedObjectReference: corev1.TypedObjectReference{
@@ -149,9 +167,20 @@ func (r *KroReconciler) CreateOrUpdate(ctx context.Context, svcobj *apiv1alpha1.
 			Message:  hrMsg,
 			Location: apiv1alpha1.PlatformCluster,
 		},
+		{
+			TypedObjectReference: corev1.TypedObjectReference{
+				APIGroup:  new(helmv2.GroupVersion.Group),
+				Kind:      "HelmRelease",
+				Name:      MCPHelmReleaseName,
+				Namespace: new(tenantNamespace),
+			},
+			Phase:    mcpCRDsPhase,
+			Message:  mcpCRDsMsg,
+			Location: apiv1alpha1.PlatformCluster,
+		},
 	}
 
-	if ociPhase == apiv1alpha1.Ready && hrPhase == apiv1alpha1.Ready {
+	if ociPhase == apiv1alpha1.Ready && hrPhase == apiv1alpha1.Ready && mcpCRDsPhase == apiv1alpha1.Ready {
 		spruntime.StatusReady(svcobj)
 	} else {
 		spruntime.StatusProgressing(svcobj, "Reconciling", "Waiting for managed resources to become ready")
@@ -194,6 +223,9 @@ func (r *KroReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Kro, _ *api
 		},
 		&helmv2.HelmRelease{
 			ObjectMeta: metav1.ObjectMeta{Name: HelmReleaseName, Namespace: tenantNamespace},
+		},
+		&helmv2.HelmRelease{
+			ObjectMeta: metav1.ObjectMeta{Name: MCPHelmReleaseName, Namespace: tenantNamespace},
 		},
 	}
 
@@ -264,6 +296,16 @@ func managedResources(tenantNamespace string, phase apiv1alpha1.InstancePhase) [
 			Phase:    phase,
 			Location: apiv1alpha1.PlatformCluster,
 		},
+		{
+			TypedObjectReference: corev1.TypedObjectReference{
+				APIGroup:  new(helmv2.GroupVersion.Group),
+				Kind:      "HelmRelease",
+				Name:      MCPHelmReleaseName,
+				Namespace: new(tenantNamespace),
+			},
+			Phase:    phase,
+			Location: apiv1alpha1.PlatformCluster,
+		},
 	}
 }
 
@@ -280,20 +322,20 @@ func resourceStatus(conditions []metav1.Condition) (apiv1alpha1.InstancePhase, s
 	return apiv1alpha1.Progressing, ""
 }
 
-func (r *KroReconciler) getMcpFluxConfig(ctx context.Context, namespace, objectName string) (*meta.SecretKeyReference, error) {
-	mcpAccessRequest := &clustersv1alpha1.AccessRequest{
+func (r *KroReconciler) getWorkloadFluxConfig(ctx context.Context, namespace, objectName string) (*meta.SecretKeyReference, error) {
+	workloadAccessRequest := &clustersv1alpha1.AccessRequest{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      clusteraccess.StableRequestNameFromLocalName(ClusterAccessName, objectName) + requestSuffixMCP,
+			Name:      clusteraccess.StableRequestNameFromLocalName(ClusterAccessName, objectName) + requestSuffixWorkload,
 			Namespace: namespace,
 		},
 	}
 
-	if err := r.PlatformCluster.Client().Get(ctx, client.ObjectKeyFromObject(mcpAccessRequest), mcpAccessRequest); err != nil {
-		return nil, fmt.Errorf("failed to get MCP AccessRequest: %w", err)
+	if err := r.PlatformCluster.Client().Get(ctx, client.ObjectKeyFromObject(workloadAccessRequest), workloadAccessRequest); err != nil {
+		return nil, fmt.Errorf("failed to get Workload AccessRequest: %w", err)
 	}
 
 	return &meta.SecretKeyReference{
-		Name: mcpAccessRequest.Status.SecretRef.Name,
+		Name: workloadAccessRequest.Status.SecretRef.Name,
 		Key:  "kubeconfig",
 	}, nil
 }
@@ -330,15 +372,12 @@ func (r *KroReconciler) replicateChartPullSecret(ctx context.Context, secretName
 	return nil
 }
 
-// replicateMCPImagePullSecrets copies every secret referenced under
+// replicateImagePullSecrets copies every secret referenced under
 // `imagePullSecrets` in the version's Helm values from the controller's
 // own namespace on the platform cluster into the kro-system namespace on the
-// MCP cluster, so the deployed controller can pull its images from private
-// registries. The target namespace is created if it does not exist.
-//
-// Cleanup is not required: when the MCP is torn down or the chart namespace is
-// removed, the copied secrets are garbage-collected with it.
-func (r *KroReconciler) replicateMCPImagePullSecrets(ctx context.Context, mcpCluster *clusters.Cluster, values *apiextensionsv1.JSON) error {
+// workload cluster, so the deployed kro controller can pull its images from
+// private registries. The target namespace is created if it does not exist.
+func (r *KroReconciler) replicateImagePullSecrets(ctx context.Context, workloadCluster *clusters.Cluster, values *apiextensionsv1.JSON) error {
 	helmValues, err := ExtractHelmValues(values)
 	if err != nil {
 		return err
@@ -346,16 +385,16 @@ func (r *KroReconciler) replicateMCPImagePullSecrets(ctx context.Context, mcpClu
 	if len(helmValues.ImagePullSecrets) == 0 {
 		return nil
 	}
-	if mcpCluster == nil {
-		return fmt.Errorf("mcp cluster is required to replicate image pull secrets but was nil")
+	if workloadCluster == nil {
+		return fmt.Errorf("workload cluster is required to replicate image pull secrets but was nil")
 	}
 
 	platformClient := r.PlatformCluster.Client()
-	mcpClient := mcpCluster.Client()
+	workloadClient := workloadCluster.Client()
 
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: KroSystemNamespace}}
-	if _, err := ctrl.CreateOrUpdate(ctx, mcpClient, ns, func() error { return nil }); err != nil {
-		return fmt.Errorf("failed to ensure namespace %q on mcp cluster: %w", KroSystemNamespace, err)
+	if _, err := ctrl.CreateOrUpdate(ctx, workloadClient, ns, func() error { return nil }); err != nil {
+		return fmt.Errorf("failed to ensure namespace %q on workload cluster: %w", KroSystemNamespace, err)
 	}
 
 	for _, ref := range helmValues.ImagePullSecrets {
@@ -370,14 +409,62 @@ func (r *KroReconciler) replicateMCPImagePullSecrets(ctx context.Context, mcpClu
 				Namespace: KroSystemNamespace,
 			},
 		}
-		if _, err := ctrl.CreateOrUpdate(ctx, mcpClient, target, func() error {
+		if _, err := ctrl.CreateOrUpdate(ctx, workloadClient, target, func() error {
 			target.Data = source.Data
 			target.Type = source.Type
 			return nil
 		}); err != nil {
-			return fmt.Errorf("failed to replicate image pull secret %q to mcp namespace %q: %w", ref.Name, KroSystemNamespace, err)
+			return fmt.Errorf("failed to replicate image pull secret %q to workload namespace %q: %w", ref.Name, KroSystemNamespace, err)
 		}
 	}
+	return nil
+}
+
+// replicateMCPKubeconfig copies the MCP kubeconfig secret from the platform
+// cluster into the kro-system namespace on the workload cluster. This allows
+// kro (running on the workload cluster) to connect to the MCP API server.
+func (r *KroReconciler) replicateMCPKubeconfig(ctx context.Context, clusterCtx spruntime.ClusterContext) error {
+	if clusterCtx.WorkloadCluster == nil {
+		return fmt.Errorf("workload cluster is required to replicate MCP kubeconfig but was nil")
+	}
+
+	platformClient := r.PlatformCluster.Client()
+	workloadClient := clusterCtx.WorkloadCluster.Client()
+
+	// Read the MCP kubeconfig secret from the platform cluster.
+	mcpSecret := &corev1.Secret{}
+	if err := platformClient.Get(ctx, clusterCtx.MCPAccessSecretKey, mcpSecret); err != nil {
+		return fmt.Errorf("failed to get MCP kubeconfig secret: %w", err)
+	}
+
+	kubeconfigData, ok := mcpSecret.Data[mcpKubeconfigKey]
+	if !ok {
+		return fmt.Errorf("MCP kubeconfig secret %q does not contain key %q", clusterCtx.MCPAccessSecretKey, mcpKubeconfigKey)
+	}
+
+	// Ensure the target namespace exists on the workload cluster.
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: KroSystemNamespace}}
+	if _, err := ctrl.CreateOrUpdate(ctx, workloadClient, ns, func() error { return nil }); err != nil {
+		return fmt.Errorf("failed to ensure namespace %q on workload cluster: %w", KroSystemNamespace, err)
+	}
+
+	// Create or update the kubeconfig secret on the workload cluster.
+	target := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      mcpKubeconfigSecretName,
+			Namespace: KroSystemNamespace,
+		},
+	}
+	if _, err := ctrl.CreateOrUpdate(ctx, workloadClient, target, func() error {
+		target.Data = map[string][]byte{
+			mcpKubeconfigKey: kubeconfigData,
+		}
+		target.Type = corev1.SecretTypeOpaque
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to replicate MCP kubeconfig to workload cluster: %w", err)
+	}
+
 	return nil
 }
 
@@ -447,9 +534,9 @@ func createOciRepository(version apiv1alpha1.KroVersion, namespace string) *sour
 }
 
 func (r *KroReconciler) createHelmRelease(ctx context.Context, namespace string, svcobj *apiv1alpha1.Kro, helmValues *apiextensionsv1.JSON) (*helmv2.HelmRelease, error) {
-	fluxConfigRef, err := r.getMcpFluxConfig(ctx, namespace, svcobj.Name)
+	fluxConfigRef, err := r.getWorkloadFluxConfig(ctx, namespace, svcobj.Name)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get FluxConfig: %w", err)
+		return nil, fmt.Errorf("failed to get workload FluxConfig: %w", err)
 	}
 
 	return &helmv2.HelmRelease{
@@ -463,7 +550,52 @@ func (r *KroReconciler) createHelmRelease(ctx context.Context, namespace string,
 			TargetNamespace:  KroSystemNamespace,
 			StorageNamespace: KroSystemNamespace,
 			Install: &helmv2.Install{
-				CRDs:            helmv2.Create,
+				CRDs:            helmv2.Skip,
+				CreateNamespace: true,
+				Remediation: &helmv2.InstallRemediation{
+					Retries: 3,
+				},
+			},
+			Upgrade: &helmv2.Upgrade{
+				CRDs:          helmv2.Skip,
+				CleanupOnFail: true,
+				Remediation: &helmv2.UpgradeRemediation{
+					Retries:  3,
+					Strategy: new(helmv2.RollbackRemediationStrategy),
+				},
+			},
+			ChartRef: &helmv2.CrossNamespaceSourceReference{
+				Kind:      "OCIRepository",
+				Name:      OCIRepositoryName,
+				Namespace: namespace,
+			},
+			Values: helmValues,
+			KubeConfig: &meta.KubeConfigReference{
+				SecretRef: fluxConfigRef,
+			},
+			PostRenderers: kubeconfigPostRenderers(),
+		},
+	}, nil
+}
+
+func (r *KroReconciler) createOrUpdateMCPCRDsHelmRelease(ctx context.Context, namespace string, clusterCtx spruntime.ClusterContext) (*helmv2.HelmRelease, error) {
+	mcpSecretRef := &meta.SecretKeyReference{
+		Name: clusterCtx.MCPAccessSecretKey.Name,
+		Key:  "kubeconfig",
+	}
+
+	helmRelease := &helmv2.HelmRelease{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      MCPHelmReleaseName,
+			Namespace: namespace,
+		},
+		Spec: helmv2.HelmReleaseSpec{
+			ReleaseName:      "kro-crds",
+			Interval:         metav1.Duration{Duration: time.Minute},
+			TargetNamespace:  KroSystemNamespace,
+			StorageNamespace: KroSystemNamespace,
+			Install: &helmv2.Install{
+				CRDs:            helmv2.CreateReplace,
 				CreateNamespace: true,
 				Remediation: &helmv2.InstallRemediation{
 					Retries: 3,
@@ -482,10 +614,27 @@ func (r *KroReconciler) createHelmRelease(ctx context.Context, namespace string,
 				Name:      OCIRepositoryName,
 				Namespace: namespace,
 			},
-			Values: helmValues,
 			KubeConfig: &meta.KubeConfigReference{
-				SecretRef: fluxConfigRef,
+				SecretRef: mcpSecretRef,
 			},
+			PostRenderers: crdOnlyPostRenderers(),
 		},
-	}, nil
+	}
+
+	managedObj := &helmv2.HelmRelease{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      MCPHelmReleaseName,
+			Namespace: namespace,
+		},
+	}
+	l := logf.FromContext(ctx)
+	l.Info("creating MCP CRDs Helm Release", "object", managedObj)
+	if _, err := ctrl.CreateOrUpdate(ctx, r.PlatformCluster.Client(), managedObj, func() error {
+		managedObj.Spec = helmRelease.Spec
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return managedObj, nil
 }
