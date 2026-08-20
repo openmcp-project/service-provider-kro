@@ -275,21 +275,19 @@ func (r *SPReconciler[T, PC]) delete(ctx context.Context, obj T, pc PC) (ctrl.Re
 		return reconcile.Result{}, err
 	}
 	if !accessRequestsInDeletion {
-		clusters, res, err := r.clusters(ctx, req)
+		clusters, res, err := r.clusters(ctx, req, false)
 		if err != nil {
 			StatusTerminatingWithReason(obj, reasonReconcileError, "cluster cleanup error")
 			return ctrl.Result{}, err
 		}
-		if res.RequeueAfter > 0 {
-			StatusTerminatingWithReason(obj, "Reconciling", "cluster cleanup")
-			return res, nil
-		}
-		res, err = r.serviceProviderReconciler.Delete(ctx, obj, pc, clusters)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		if res.RequeueAfter > 0 {
-			return res, nil
+		if res.RequeueAfter == 0 {
+			res, err = r.serviceProviderReconciler.Delete(ctx, obj, pc, clusters)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if res.RequeueAfter > 0 {
+				return res, nil
+			}
 		}
 	}
 	// remove cluster access
@@ -322,7 +320,7 @@ func (r *SPReconciler[T, PC]) createOrUpdate(ctx context.Context, obj T, pc PC) 
 		return ctrl.Result{}, err
 	}
 	req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(obj)}
-	clusters, res, err := r.clusters(ctx, req)
+	clusters, res, err := r.clusters(ctx, req, true)
 	if err != nil {
 		StatusProgressing(obj, reasonReconcileError, "cluster setup error")
 		return ctrl.Result{}, err
@@ -356,46 +354,87 @@ func (r *SPReconciler[T, PC]) areAccessRequestsInDeletion(ctx context.Context, r
 	return false, nil
 }
 
-// clusters returns any request scoped cluster that a servicer provider developer might want to access in order
-// to delivery its service.
-func (r *SPReconciler[T, PC]) clusters(ctx context.Context, req ctrl.Request) (ClusterContext, ctrl.Result, error) {
+// clusters returns any request scoped cluster that a service provider developer might want to access in order
+// to deliver its service. When requireAll is false (used during deletion), missing cluster access does not
+// block - nil clusters are passed through to the caller.
+func (r *SPReconciler[T, PC]) clusters(ctx context.Context, req ctrl.Request, requireAll bool) (ClusterContext, ctrl.Result, error) {
 	clusters := ClusterContext{}
 	res, err := r.clusterAccessReconciler.Reconcile(ctx, req)
 	if err != nil {
 		return clusters, ctrl.Result{}, err
 	}
+	if !requireAll {
+		return r.clustersOptional(ctx, req, res)
+	}
 	if res.RequeueAfter > 0 {
 		return clusters, res, nil
 	}
-	mcpCluster, err := r.clusterAccessReconciler.MCPCluster(ctx, req)
-	if err != nil {
+	if err := r.resolveMCPCluster(ctx, req, &clusters); err != nil {
 		return clusters, ctrl.Result{}, err
 	}
+	if clusters.MCPCluster == nil {
+		return clusters, ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+	if r.withWorkloadCluster {
+		if err := r.resolveWorkloadCluster(ctx, req, &clusters); err != nil {
+			return clusters, ctrl.Result{}, err
+		}
+		if clusters.WorkloadCluster == nil {
+			return clusters, ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		}
+	}
+	return clusters, ctrl.Result{}, nil
+}
+
+// clustersOptional resolves available clusters without blocking on missing access.
+func (r *SPReconciler[T, PC]) clustersOptional(ctx context.Context, req ctrl.Request, res ctrl.Result) (ClusterContext, ctrl.Result, error) {
+	clusters := ClusterContext{}
+	if res.RequeueAfter > 0 {
+		return clusters, ctrl.Result{}, nil
+	}
+	if err := r.resolveMCPCluster(ctx, req, &clusters); err != nil {
+		return clusters, ctrl.Result{}, err
+	}
+	if r.withWorkloadCluster {
+		if err := r.resolveWorkloadCluster(ctx, req, &clusters); err != nil {
+			return clusters, ctrl.Result{}, err
+		}
+	}
+	return clusters, ctrl.Result{}, nil
+}
+
+func (r *SPReconciler[T, PC]) resolveMCPCluster(ctx context.Context, req ctrl.Request, clusters *ClusterContext) error {
+	mcpCluster, err := r.clusterAccessReconciler.MCPCluster(ctx, req)
+	if err != nil {
+		return err
+	}
 	if mcpCluster == nil {
-		return clusters, res, errors.New("mcp access missing")
+		return nil
 	}
 	clusters.MCPCluster = mcpCluster
 	ar, err := r.clusterAccessReconciler.MCPAccessRequest(ctx, req)
 	if err != nil {
-		return clusters, ctrl.Result{}, err
+		return err
 	}
 	clusters.MCPAccessSecretKey = retrieveSecretKey(ar)
-	if r.withWorkloadCluster {
-		workloadCluster, err := r.clusterAccessReconciler.WorkloadCluster(ctx, req)
-		if err != nil {
-			return clusters, ctrl.Result{}, err
-		}
-		if workloadCluster == nil {
-			return clusters, res, errors.New("workload cluster access missing")
-		}
-		clusters.WorkloadCluster = workloadCluster
-		ar, err := r.clusterAccessReconciler.WorkloadAccessRequest(ctx, req)
-		if err != nil {
-			return clusters, ctrl.Result{}, err
-		}
-		clusters.WorkloadAccessSecretKey = retrieveSecretKey(ar)
+	return nil
+}
+
+func (r *SPReconciler[T, PC]) resolveWorkloadCluster(ctx context.Context, req ctrl.Request, clusters *ClusterContext) error {
+	workloadCluster, err := r.clusterAccessReconciler.WorkloadCluster(ctx, req)
+	if err != nil {
+		return err
 	}
-	return clusters, res, nil
+	if workloadCluster == nil {
+		return nil
+	}
+	clusters.WorkloadCluster = workloadCluster
+	ar, err := r.clusterAccessReconciler.WorkloadAccessRequest(ctx, req)
+	if err != nil {
+		return err
+	}
+	clusters.WorkloadAccessSecretKey = retrieveSecretKey(ar)
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -66,6 +66,7 @@ var (
 	platformScheme   = runtime.NewScheme()
 	onboardingScheme = runtime.NewScheme()
 	mcpScheme        = runtime.NewScheme()
+	workloadScheme   = runtime.NewScheme()
 	setupLog         = ctrl.Log.WithName("setup")
 )
 
@@ -74,6 +75,7 @@ func init() {
 	initPlatformScheme()
 	initOnboardingScheme()
 	initMcpScheme()
+	initWorkloadScheme()
 }
 
 func initPlatformScheme() {
@@ -98,6 +100,10 @@ func initMcpScheme() {
 	utilruntime.Must(apiextensionv1.AddToScheme(mcpScheme))
 	utilruntime.Must(sourcev1.AddToScheme(mcpScheme))
 	utilruntime.Must(helmv2.AddToScheme(mcpScheme))
+}
+
+func initWorkloadScheme() {
+	utilruntime.Must(clientgoscheme.AddToScheme(workloadScheme))
 }
 
 // nolint:gocyclo
@@ -316,6 +322,7 @@ func main() {
 	).
 		WithPlatformCluster(platformCluster).
 		WithOnboardingCluster(onboardingCluster).
+		WithWorkloadCluster(true).
 		WithServiceProviderReconciler(&controller.KroReconciler{
 			OnboardingCluster: onboardingCluster,
 			PlatformCluster:   platformCluster,
@@ -323,13 +330,18 @@ func main() {
 		}).
 		WithClusterAccessReconciler(clusteraccess.NewClusterAccessReconciler(platformCluster.Client(), krosv1alpha1.GroupVersion.Group).
 			WithMCPScheme(mcpScheme).
+			WithWorkloadScheme(workloadScheme).
 			WithRetryInterval(10 * time.Second).
 			WithMCPPermissions(adminPermissions).WithMCPRoleRefs([]common.RoleRef{
 			{
 				Name: "cluster-admin",
 				Kind: "ClusterRole",
 			}}).
-			SkipWorkloadCluster(),
+			WithWorkloadPermissions(adminPermissions).WithWorkloadRoleRefs([]common.RoleRef{
+			{
+				Name: "cluster-admin",
+				Kind: "ClusterRole",
+			}}),
 		)
 	if err := spr.SetupWithManager(mgr, "kro", providerConfigUpdates); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Kro")
