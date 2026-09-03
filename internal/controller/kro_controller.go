@@ -26,8 +26,6 @@ import (
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
 	ctrlerrors "github.com/openmcp-project/controller-utils/pkg/errors"
-	clustersv1alpha1 "github.com/openmcp-project/openmcp-operator/api/clusters/v1alpha1"
-	"github.com/openmcp-project/openmcp-operator/lib/clusteraccess"
 	libutils "github.com/openmcp-project/openmcp-operator/lib/utils"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -40,8 +38,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider"
+	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider/clusteraccess"
+
 	apiv1alpha1 "github.com/openmcp-project/service-provider-kro/api/v1alpha1"
-	"github.com/openmcp-project/service-provider-kro/pkg/spruntime"
 )
 
 const (
@@ -51,8 +51,6 @@ const (
 	OCIRepositoryName = "kro-oci-repository"
 	// KroSystemNamespace is the default namespace on the target cluster to use to install the Kro controller into.
 	KroSystemNamespace = "kro-system"
-	// requestSuffixMCP is the suffix used for the mcp cluster.
-	requestSuffixMCP = "--mcp"
 
 	// kroAPIGroup is the API group under which kro serves its custom resources.
 	kroAPIGroup = "kro.run"
@@ -82,10 +80,10 @@ type KroReconciler struct {
 }
 
 // CreateOrUpdate is called on every add or update event
-func (r *KroReconciler) CreateOrUpdate(ctx context.Context, svcobj *apiv1alpha1.Kro, providerConfig *apiv1alpha1.ProviderConfig, clusterCtx spruntime.ClusterContext) (ctrl.Result, error) {
+func (r *KroReconciler) CreateOrUpdate(ctx context.Context, svcobj *apiv1alpha1.Kro, providerConfig *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (ctrl.Result, error) {
 	l := logf.FromContext(ctx)
 	l.Info("Reconciling Kro resource", "name", svcobj.Name)
-	spruntime.StatusProgressing(svcobj, "Reconciling", "Reconcile in progress")
+	serviceprovider.StatusProgressing(svcobj, "Reconciling", "Reconcile in progress")
 	tenantNamespace, err := libutils.StableMCPNamespace(svcobj.Name, svcobj.Namespace)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to determine stable namespace for Kro instance: %w", err)
@@ -97,28 +95,28 @@ func (r *KroReconciler) CreateOrUpdate(ctx context.Context, svcobj *apiv1alpha1.
 	version, err := providerConfig.ResolveVersion(svcobj.Spec.Version)
 	if err != nil {
 		l.Info("requested version is not offered by the provider config", "version", svcobj.Spec.Version, "error", err.Error())
-		spruntime.StatusProgressing(svcobj, conditionReasonError, err.Error())
+		serviceprovider.StatusProgressing(svcobj, conditionReasonError, err.Error())
 		return ctrl.Result{}, ctrlerrors.IgnoreInvalidUserInput(err)
 	}
 	l.Info("resolved requested version", "version", version.Version, "chartVersion", version.ChartVersion, "chartURL", version.GetChartURL())
 
 	if err := r.replicateChartPullSecret(ctx, version.ChartPullSecret, tenantNamespace); err != nil {
-		spruntime.StatusProgressing(svcobj, conditionReasonError, err.Error())
+		serviceprovider.StatusProgressing(svcobj, conditionReasonError, err.Error())
 		return ctrl.Result{}, fmt.Errorf("failed to replicate chart pull secret: %w", err)
 	}
 
 	ociRepo, err := r.createOrUpdateOCIRepository(ctx, version, tenantNamespace)
 	if err != nil {
-		spruntime.StatusProgressing(svcobj, conditionReasonError, err.Error())
+		serviceprovider.StatusProgressing(svcobj, conditionReasonError, err.Error())
 		return ctrl.Result{}, fmt.Errorf("failed to reconcile OCI Repository: %w", err)
 	}
 	if err := r.replicateMCPImagePullSecrets(ctx, clusterCtx.MCPCluster, version.HelmValues); err != nil {
-		spruntime.StatusProgressing(svcobj, conditionReasonError, err.Error())
+		serviceprovider.StatusProgressing(svcobj, conditionReasonError, err.Error())
 		return ctrl.Result{}, fmt.Errorf("failed to replicate MCP image pull secrets: %w", err)
 	}
-	helmRel, err := r.createOrUpdateHelmRelease(ctx, tenantNamespace, svcobj, version.HelmValues)
+	helmRel, err := r.createOrUpdateHelmRelease(ctx, tenantNamespace, version.HelmValues, clusterCtx)
 	if err != nil {
-		spruntime.StatusProgressing(svcobj, conditionReasonError, err.Error())
+		serviceprovider.StatusProgressing(svcobj, conditionReasonError, err.Error())
 		return ctrl.Result{}, fmt.Errorf("failed to reconcile HelmRelease: %w", err)
 	}
 
@@ -152,18 +150,18 @@ func (r *KroReconciler) CreateOrUpdate(ctx context.Context, svcobj *apiv1alpha1.
 	}
 
 	if ociPhase == apiv1alpha1.Ready && hrPhase == apiv1alpha1.Ready {
-		spruntime.StatusReady(svcobj)
+		serviceprovider.StatusReady(svcobj)
 	} else {
-		spruntime.StatusProgressing(svcobj, "Reconciling", "Waiting for managed resources to become ready")
+		serviceprovider.StatusProgressing(svcobj, "Reconciling", "Waiting for managed resources to become ready")
 	}
 	// The SPReconciler wrapper applies PollInterval as a fallback RequeueAfter.
 	return ctrl.Result{}, nil
 }
 
 // Delete is called on every delete event.
-func (r *KroReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Kro, _ *apiv1alpha1.ProviderConfig, clusterCtx spruntime.ClusterContext) (ctrl.Result, error) {
+func (r *KroReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Kro, _ *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (ctrl.Result, error) {
 	l := logf.FromContext(ctx)
-	spruntime.StatusTerminating(obj)
+	serviceprovider.StatusTerminating(obj)
 
 	tenantNamespace, err := libutils.StableMCPNamespace(obj.Name, obj.Namespace)
 	if err != nil {
@@ -174,13 +172,13 @@ func (r *KroReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Kro, _ *api
 	if clusterCtx.MCPCluster != nil {
 		remaining, err := r.countResourceGraphDefinitions(ctx, clusterCtx.MCPCluster)
 		if err != nil {
-			spruntime.StatusTerminatingWithReason(obj, conditionReasonError, err.Error())
+			serviceprovider.StatusTerminatingWithReason(obj, conditionReasonError, err.Error())
 			return ctrl.Result{}, fmt.Errorf("failed to check for remaining ResourceGraphDefinitions: %w", err)
 		}
 		if remaining > 0 {
 			msg := fmt.Sprintf("deletion blocked: waiting for %d kro ResourceGraphDefinition(s) to be removed from the control plane", remaining)
 			l.Info(msg)
-			spruntime.StatusTerminatingMessage(obj, msg)
+			serviceprovider.StatusTerminatingWithReason(obj, "ResourcesRemain", msg)
 			obj.Status.Resources = managedResources(tenantNamespace, apiv1alpha1.Terminating)
 			return ctrl.Result{RequeueAfter: deletionBlockedRequeue}, nil
 		}
@@ -200,7 +198,7 @@ func (r *KroReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Kro, _ *api
 	objectsStillExist := false
 	for _, managedObj := range objects {
 		if err := r.PlatformCluster.Client().Delete(ctx, managedObj); client.IgnoreNotFound(err) != nil {
-			spruntime.StatusTerminatingWithReason(obj, conditionReasonError, err.Error())
+			serviceprovider.StatusTerminatingWithReason(obj, conditionReasonError, err.Error())
 			return ctrl.Result{}, fmt.Errorf("delete object failed: %w", err)
 		}
 		// Only a NotFound confirms the object is gone. A successful Get means it is still
@@ -217,7 +215,7 @@ func (r *KroReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Kro, _ *api
 	}
 
 	obj.Status.Resources = nil
-	spruntime.StatusReady(obj)
+	serviceprovider.StatusReady(obj)
 	return ctrl.Result{}, nil
 }
 
@@ -278,24 +276,6 @@ func resourceStatus(conditions []metav1.Condition) (apiv1alpha1.InstancePhase, s
 		return apiv1alpha1.Progressing, cond.Message
 	}
 	return apiv1alpha1.Progressing, ""
-}
-
-func (r *KroReconciler) getMcpFluxConfig(ctx context.Context, namespace, objectName string) (*meta.SecretKeyReference, error) {
-	mcpAccessRequest := &clustersv1alpha1.AccessRequest{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      clusteraccess.StableRequestNameFromLocalName(ClusterAccessName, objectName) + requestSuffixMCP,
-			Namespace: namespace,
-		},
-	}
-
-	if err := r.PlatformCluster.Client().Get(ctx, client.ObjectKeyFromObject(mcpAccessRequest), mcpAccessRequest); err != nil {
-		return nil, fmt.Errorf("failed to get MCP AccessRequest: %w", err)
-	}
-
-	return &meta.SecretKeyReference{
-		Name: mcpAccessRequest.Status.SecretRef.Name,
-		Key:  "kubeconfig",
-	}, nil
 }
 
 // replicateChartPullSecret copies the named secret from the controller's namespace
@@ -401,8 +381,8 @@ func (r *KroReconciler) createOrUpdateOCIRepository(ctx context.Context, version
 	return managedObj, nil
 }
 
-func (r *KroReconciler) createOrUpdateHelmRelease(ctx context.Context, namespace string, svcobj *apiv1alpha1.Kro, values *apiextensionsv1.JSON) (*helmv2.HelmRelease, error) {
-	helmRelease, err := r.createHelmRelease(ctx, namespace, svcobj, values)
+func (r *KroReconciler) createOrUpdateHelmRelease(ctx context.Context, namespace string, values *apiextensionsv1.JSON, clusterCtx clusteraccess.ClusterContext) (*helmv2.HelmRelease, error) {
+	helmRelease, err := r.createHelmRelease(namespace, values, clusterCtx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create helm release: %w", err)
 	}
@@ -446,12 +426,7 @@ func createOciRepository(version apiv1alpha1.KroVersion, namespace string) *sour
 	}
 }
 
-func (r *KroReconciler) createHelmRelease(ctx context.Context, namespace string, svcobj *apiv1alpha1.Kro, helmValues *apiextensionsv1.JSON) (*helmv2.HelmRelease, error) {
-	fluxConfigRef, err := r.getMcpFluxConfig(ctx, namespace, svcobj.Name)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get FluxConfig: %w", err)
-	}
-
+func (r *KroReconciler) createHelmRelease(namespace string, helmValues *apiextensionsv1.JSON, clusterCtx clusteraccess.ClusterContext) (*helmv2.HelmRelease, error) {
 	return &helmv2.HelmRelease{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      HelmReleaseName,
@@ -484,7 +459,10 @@ func (r *KroReconciler) createHelmRelease(ctx context.Context, namespace string,
 			},
 			Values: helmValues,
 			KubeConfig: &meta.KubeConfigReference{
-				SecretRef: fluxConfigRef,
+				SecretRef: &meta.SecretKeyReference{
+					Name: clusterCtx.MCPAccessSecretKey.Name,
+					Key:  "kubeconfig",
+				},
 			},
 		},
 	}, nil

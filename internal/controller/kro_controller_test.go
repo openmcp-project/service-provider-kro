@@ -39,8 +39,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	spruntime "github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider"
+	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider/clusteraccess"
+
 	apiv1alpha1 "github.com/openmcp-project/service-provider-kro/api/v1alpha1"
-	"github.com/openmcp-project/service-provider-kro/pkg/spruntime"
 )
 
 func TestResourceStatus(t *testing.T) {
@@ -169,7 +171,7 @@ func TestCreateOrUpdate_UnknownVersion(t *testing.T) {
 	}
 	r := &KroReconciler{}
 
-	res, err := r.CreateOrUpdate(context.Background(), obj, pc, spruntime.ClusterContext{})
+	res, err := r.CreateOrUpdate(context.Background(), obj, pc, clusteraccess.ClusterContext{})
 	require.NoError(t, err)
 	assert.Zero(t, res.RequeueAfter)
 	assert.Equal(t, spruntime.StatusPhaseProgressing, obj.Status.Phase)
@@ -206,7 +208,7 @@ func TestDelete_VersionRemovedFromProviderConfig(t *testing.T) {
 		Spec:       apiv1alpha1.KroSpec{Version: "0.9.3"},
 	}
 	r := &KroReconciler{PlatformCluster: clusters.NewTestClusterFromClient("platform", platformClient)}
-	clusterCtx := spruntime.ClusterContext{MCPCluster: fakeMCPCluster(t, 0, nil)}
+	clusterCtx := clusteraccess.ClusterContext{MCPCluster: fakeMCPCluster(t, 0, nil)}
 
 	res, err := r.Delete(context.Background(), obj, &apiv1alpha1.ProviderConfig{}, clusterCtx)
 	require.NoError(t, err)
@@ -243,7 +245,7 @@ func TestDelete_RequeuesWhileObjectsRemain(t *testing.T) {
 
 	obj := &apiv1alpha1.Kro{ObjectMeta: metav1.ObjectMeta{Name: "mcp-01", Namespace: "tenant"}}
 	r := &KroReconciler{PlatformCluster: clusters.NewTestClusterFromClient("platform", platformClient)}
-	clusterCtx := spruntime.ClusterContext{MCPCluster: fakeMCPCluster(t, 0, nil)}
+	clusterCtx := clusteraccess.ClusterContext{MCPCluster: fakeMCPCluster(t, 0, nil)}
 
 	res, err := r.Delete(context.Background(), obj, &apiv1alpha1.ProviderConfig{}, clusterCtx)
 	require.NoError(t, err)
@@ -322,7 +324,7 @@ func TestDelete_BlockedByResourceGraphDefinitions(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "mcp-01", Namespace: "tenant"},
 	}
 	r := &KroReconciler{}
-	clusterCtx := spruntime.ClusterContext{MCPCluster: fakeMCPCluster(t, 2, nil)}
+	clusterCtx := clusteraccess.ClusterContext{MCPCluster: fakeMCPCluster(t, 2, nil)}
 
 	res, err := r.Delete(context.Background(), obj, &apiv1alpha1.ProviderConfig{}, clusterCtx)
 	require.NoError(t, err)

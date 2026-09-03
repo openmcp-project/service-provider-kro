@@ -47,7 +47,6 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -55,7 +54,7 @@ import (
 
 	"github.com/openmcp-project/service-provider-kro/api/crds"
 
-	"github.com/openmcp-project/service-provider-kro/pkg/spruntime"
+	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider"
 
 	krosv1alpha1 "github.com/openmcp-project/service-provider-kro/api/v1alpha1"
 	"github.com/openmcp-project/service-provider-kro/internal/controller"
@@ -310,18 +309,19 @@ func main() {
 		setupLog.Error(err, "unable to add platform cluster to manager")
 		os.Exit(1)
 	}
-	providerConfigUpdates := make(chan event.GenericEvent)
-	spr := spruntime.NewSPReconciler[*krosv1alpha1.Kro, *krosv1alpha1.ProviderConfig](
-		func() *krosv1alpha1.Kro { return &krosv1alpha1.Kro{} },
-	).
-		WithPlatformCluster(platformCluster).
-		WithOnboardingCluster(onboardingCluster).
-		WithServiceProviderReconciler(&controller.KroReconciler{
+
+	spr := serviceprovider.NewAPIReconcilerBuilder[*krosv1alpha1.Kro, *krosv1alpha1.ProviderConfig]().
+		EmptyObjectProvider(func() *krosv1alpha1.Kro { return &krosv1alpha1.Kro{} }).
+		EmptyConfigProvider(func() *krosv1alpha1.ProviderConfig { return &krosv1alpha1.ProviderConfig{} }).
+		PlatformCluster(platformCluster).
+		OnboardingCluster(onboardingCluster).
+		WorkloadCluster(false).
+		Reconciler(&controller.KroReconciler{
 			OnboardingCluster: onboardingCluster,
 			PlatformCluster:   platformCluster,
 			PodNamespace:      podNamespace,
 		}).
-		WithClusterAccessReconciler(clusteraccess.NewClusterAccessReconciler(platformCluster.Client(), krosv1alpha1.GroupVersion.Group).
+		ClusterAccessReconciler(clusteraccess.NewClusterAccessReconciler(platformCluster.Client(), krosv1alpha1.GroupVersion.Group).
 			WithMCPScheme(mcpScheme).
 			WithRetryInterval(10 * time.Second).
 			WithMCPPermissions(adminPermissions).WithMCPRoleRefs([]common.RoleRef{
@@ -330,20 +330,13 @@ func main() {
 				Kind: "ClusterRole",
 			}}).
 			SkipWorkloadCluster(),
-		)
-	if err := spr.SetupWithManager(mgr, "kro", providerConfigUpdates); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Kro")
+		).
+		MustBuild()
+	if err := spr.SetupWithManager(mgr, providerName); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Velero")
 		os.Exit(1)
 	}
-	pcr := spruntime.NewPCReconciler(providerName, func() *krosv1alpha1.ProviderConfig {
-		return &krosv1alpha1.ProviderConfig{}
-	}).
-		WithPlatformCluster(platformCluster).
-		WithUpdateChannel(providerConfigUpdates)
-	if err := pcr.SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ProviderConfig")
-		os.Exit(1)
-	}
+
 	// +kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
