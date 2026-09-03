@@ -333,7 +333,7 @@ func main() {
 		).
 		MustBuild()
 	if err := spr.SetupWithManager(mgr, providerName); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Velero")
+		setupLog.Error(err, "unable to create controller", "controller", providerName)
 		os.Exit(1)
 	}
 
