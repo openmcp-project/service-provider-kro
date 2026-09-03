@@ -137,10 +137,10 @@ github.com/openmcp-project/controller-utils v0.33.0 h1:bL7NDif4mVueKjYkeoZtCxw7e
 github.com/openmcp-project/controller-utils v0.33.0/go.mod h1:E8wI18omlb2y+tghMvW0CEOv3babc5QQseoT0gM3cVs=
 github.com/openmcp-project/opencontrolplane-runtime v1.3.0 h1:HDSVoMELG5ElXHA9totWcRIid9Y6VQGW/1z6kmm2OFI=
 github.com/openmcp-project/opencontrolplane-runtime v1.3.0/go.mod h1:TA7vVVm8NcT6tIchu4mFeHSdCCm08lIMzFT1mF4HkBA=
-github.com/openmcp-project/openmcp-operator/api v1.3.0 h1:RgetVDqslJPD7/nb65AbqWYtwM1qJf0ePgf0uJiEcQQ=
-github.com/openmcp-project/openmcp-operator/api v1.3.0/go.mod h1:GMCkaGUND5Qu3zTNjpYtR44her8gcOksHkrJu5isL6I=
-github.com/openmcp-project/openmcp-operator/lib v1.3.0 h1:Icx40/Qx/85+E8vWTMi1jW1WrX/MFN+FaZTDt7JWcRU=
-github.com/openmcp-project/openmcp-operator/lib v1.3.0/go.mod h1:+Ptr+38neYaoGzEdY5zhR3uhfKqNZ2J9tyOcc15S7EY=
+github.com/openmcp-project/openmcp-operator/api v1.4.0 h1:37CeeVBbtoLFoOn1BHclb9mbYD9+wIZ1d0MPJM9OFYE=
+github.com/openmcp-project/openmcp-operator/api v1.4.0/go.mod h1:0NRPZ31ueSEboe4rchsQJ5DEr6E6VmFCXVRjkX5rhr8=
+github.com/openmcp-project/openmcp-operator/lib v1.4.0 h1:P8zvR5173jEBqpshoYEfVWWwIp5SYxFy/Tqeau+FJ6E=
+github.com/openmcp-project/openmcp-operator/lib v1.4.0/go.mod h1:amTBFpMhljlR8Ro57JW0aic1K8UrPvRMQO5Ynr0pDeo=
 github.com/openmcp-project/openmcp-testing v1.3.1 h1:JXeM/IzPVkJZhlnNkmF5zBmyARBxPG/0pMJBGxOVsW8=
 github.com/openmcp-project/openmcp-testing v1.3.1/go.mod h1:ktfqERbJmmkxNpQH1jzhFfwzG1uNGMRwGcAMwDWZo/c=
 github.com/pelletier/go-toml v1.9.5 h1:4yBQzkHv+7BHq2PQUZF3Mx0IYxG7LsP222s7Agd3ve8=
