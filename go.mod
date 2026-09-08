@@ -7,7 +7,7 @@ require (
 	github.com/fluxcd/pkg/apis/meta v1.31.0
 	github.com/fluxcd/source-controller/api v1.9.5
 	github.com/openmcp-project/controller-utils v0.33.0
-	github.com/openmcp-project/opencontrolplane-runtime v1.3.0
+	github.com/openmcp-project/opencontrolplane-runtime v1.3.1
 	github.com/openmcp-project/openmcp-operator/api v1.4.0
 	github.com/openmcp-project/openmcp-operator/lib v1.4.0
 	github.com/openmcp-project/openmcp-testing v1.3.1
