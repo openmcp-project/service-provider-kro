@@ -1,6 +1,6 @@
 module github.com/openmcp-project/service-provider-kro
 
-go 1.27.2
+go 1.27.3
 
 require (
 	github.com/fluxcd/helm-controller/api v1.6.5
