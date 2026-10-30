@@ -416,7 +416,7 @@ func createOciRepository(version apiv1alpha1.KroVersion, namespace string) *sour
 			Namespace: namespace,
 		},
 		Spec: sourcev1.OCIRepositorySpec{
-			Interval:  metav1.Duration{Duration: time.Minute},
+			Interval:  &metav1.Duration{Duration: time.Minute},
 			URL:       version.GetChartURL(),
 			SecretRef: secretRef,
 			Reference: &sourcev1.OCIRepositoryRef{
