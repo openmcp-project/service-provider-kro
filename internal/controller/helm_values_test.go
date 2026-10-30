@@ -21,6 +21,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+
+	apiv1alpha1 "github.com/openmcp-project/service-provider-kro/api/v1alpha1"
 )
 
 func TestExtractHelmValues(t *testing.T) {
@@ -91,6 +93,117 @@ func TestExtractHelmValues(t *testing.T) {
 				if ref.Name != tc.want[i].Name {
 					t.Errorf("ImagePullSecrets[%d].Name: got %q, want %q", i, ref.Name, tc.want[i].Name)
 				}
+			}
+		})
+	}
+}
+
+func TestResolveHelmValues(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     *apiextensionsv1.JSON
+		requested apiv1alpha1.RBACMode
+		locked    bool
+		wantMode  apiv1alpha1.RBACMode
+		wantRaw   string
+		wantErr   bool
+	}{
+		{
+			name:     "nil values fall back to default",
+			input:    nil,
+			wantMode: apiv1alpha1.DefaultRBACMode,
+			wantRaw:  `{"rbac":{"mode":"unrestricted"}}`,
+		},
+		{
+			name:     "null values fall back to default",
+			input:    &apiextensionsv1.JSON{Raw: []byte(`null`)},
+			wantMode: apiv1alpha1.DefaultRBACMode,
+			wantRaw:  `{"rbac":{"mode":"unrestricted"}}`,
+		},
+		{
+			name:     "provider config mode used when not requested",
+			input:    &apiextensionsv1.JSON{Raw: []byte(`{"rbac":{"mode":"aggregation"}}`)},
+			wantMode: apiv1alpha1.RBACModeAggregation,
+			wantRaw:  `{"rbac":{"mode":"aggregation"}}`,
+		},
+		{
+			name:      "requested mode wins over provider config",
+			input:     &apiextensionsv1.JSON{Raw: []byte(`{"rbac":{"mode":"aggregation"}}`)},
+			requested: apiv1alpha1.RBACModeUnrestricted,
+			wantMode:  apiv1alpha1.RBACModeUnrestricted,
+			wantRaw:   `{"rbac":{"mode":"unrestricted"}}`,
+		},
+		{
+			name:      "other values preserved",
+			input:     &apiextensionsv1.JSON{Raw: []byte(`{"deployment":{"replicaCount":9007199254740993},"rbac":{"extra":true},"imagePullSecrets":[{"name":"a"}]}`)},
+			requested: apiv1alpha1.RBACModeAggregation,
+			wantMode:  apiv1alpha1.RBACModeAggregation,
+			wantRaw:   `{"deployment":{"replicaCount":9007199254740993},"imagePullSecrets":[{"name":"a"}],"rbac":{"extra":true,"mode":"aggregation"}}`,
+		},
+		{
+			name:     "null rbac treated as unset",
+			input:    &apiextensionsv1.JSON{Raw: []byte(`{"rbac":null}`)},
+			wantMode: apiv1alpha1.DefaultRBACMode,
+			wantRaw:  `{"rbac":{"mode":"unrestricted"}}`,
+		},
+		{
+			name:     "locked without request uses provider config mode",
+			input:    &apiextensionsv1.JSON{Raw: []byte(`{"rbac":{"mode":"aggregation"}}`)},
+			locked:   true,
+			wantMode: apiv1alpha1.RBACModeAggregation,
+			wantRaw:  `{"rbac":{"mode":"aggregation"}}`,
+		},
+		{
+			name:      "locked with matching request",
+			input:     &apiextensionsv1.JSON{Raw: []byte(`{"rbac":{"mode":"aggregation"}}`)},
+			requested: apiv1alpha1.RBACModeAggregation,
+			locked:    true,
+			wantMode:  apiv1alpha1.RBACModeAggregation,
+			wantRaw:   `{"rbac":{"mode":"aggregation"}}`,
+		},
+		{
+			name:      "locked with differing request",
+			input:     &apiextensionsv1.JSON{Raw: []byte(`{"rbac":{"mode":"aggregation"}}`)},
+			requested: apiv1alpha1.RBACModeUnrestricted,
+			locked:    true,
+			wantErr:   true,
+		},
+		{
+			name:      "locked to default when provider config sets no mode",
+			input:     nil,
+			requested: apiv1alpha1.RBACModeAggregation,
+			locked:    true,
+			wantErr:   true,
+		},
+		{
+			name:    "non-object rbac",
+			input:   &apiextensionsv1.JSON{Raw: []byte(`{"rbac":"aggregation"}`)},
+			wantErr: true,
+		},
+		{
+			name:    "malformed json",
+			input:   &apiextensionsv1.JSON{Raw: []byte(`{not json`)},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, mode, err := ResolveHelmValues(tc.input, tc.requested, tc.locked)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if mode != tc.wantMode {
+				t.Errorf("mode: got %q, want %q", mode, tc.wantMode)
+			}
+			if string(got.Raw) != tc.wantRaw {
+				t.Errorf("raw: got %s, want %s", got.Raw, tc.wantRaw)
 			}
 		})
 	}

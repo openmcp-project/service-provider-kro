@@ -100,6 +100,14 @@ func (r *KroReconciler) CreateOrUpdate(ctx context.Context, svcobj *apiv1alpha1.
 	}
 	l.Info("resolved requested version", "version", version.Version, "chartVersion", version.ChartVersion, "chartURL", version.GetChartURL())
 
+	helmValues, rbacMode, err := ResolveHelmValues(version.HelmValues, svcobj.Spec.RBACMode, version.LockRBACMode)
+	if err != nil {
+		l.Info("failed to resolve helm values", "rbacMode", svcobj.Spec.RBACMode, "error", err.Error())
+		serviceprovider.StatusProgressing(svcobj, conditionReasonError, err.Error())
+		return ctrl.Result{}, ctrlerrors.IgnoreInvalidUserInput(err)
+	}
+	logRBACMode(ctx, svcobj, rbacMode)
+
 	if err := r.replicateChartPullSecret(ctx, version.ChartPullSecret, tenantNamespace); err != nil {
 		serviceprovider.StatusProgressing(svcobj, conditionReasonError, err.Error())
 		return ctrl.Result{}, fmt.Errorf("failed to replicate chart pull secret: %w", err)
@@ -114,7 +122,7 @@ func (r *KroReconciler) CreateOrUpdate(ctx context.Context, svcobj *apiv1alpha1.
 		serviceprovider.StatusProgressing(svcobj, conditionReasonError, err.Error())
 		return ctrl.Result{}, fmt.Errorf("failed to replicate MCP image pull secrets: %w", err)
 	}
-	helmRel, err := r.createOrUpdateHelmRelease(ctx, tenantNamespace, version.HelmValues, clusterCtx)
+	helmRel, err := r.createOrUpdateHelmRelease(ctx, tenantNamespace, helmValues, clusterCtx)
 	if err != nil {
 		serviceprovider.StatusProgressing(svcobj, conditionReasonError, err.Error())
 		return ctrl.Result{}, fmt.Errorf("failed to reconcile HelmRelease: %w", err)
@@ -263,6 +271,19 @@ func managedResources(tenantNamespace string, phase apiv1alpha1.InstancePhase) [
 			Location: apiv1alpha1.PlatformCluster,
 		},
 	}
+}
+
+// logRBACMode logs the effective rbac mode of a Kro instance, and a deprecation warning
+// while that mode is unrestricted.
+func logRBACMode(ctx context.Context, svcobj *apiv1alpha1.Kro, mode apiv1alpha1.RBACMode) {
+	l := logf.FromContext(ctx)
+	l.Info("resolved rbac mode", "rbacMode", mode)
+	if mode != apiv1alpha1.RBACModeUnrestricted {
+		return
+	}
+	l.Info("DEPRECATION: rbac mode \"unrestricted\" is deprecated and the default will change to \"aggregation\" in a future release; "+
+		"update your RBAC so kro works in aggregation mode, then set rbac.mode to \"aggregation\" in the ProviderConfig helmValues",
+		"name", svcobj.Name, "namespace", svcobj.Namespace)
 }
 
 // resourceStatus maps a Flux resource's Ready condition to an InstancePhase.

@@ -58,10 +58,31 @@ type ManagedResource struct {
 	Location ResourceLocation `json:"location,omitempty"`
 }
 
+// RBACMode is the RBAC mode the kro controller is installed with.
+// +kubebuilder:validation:Enum=unrestricted;aggregation
+type RBACMode string
+
+const (
+	// RBACModeUnrestricted grants kro cluster-wide full access to all resources.
+	RBACModeUnrestricted RBACMode = "unrestricted"
+	// RBACModeAggregation grants kro a minimal set of permissions, extended through
+	// ClusterRoles labeled `rbac.kro.run/aggregate-to-controller: "true"`.
+	RBACModeAggregation RBACMode = "aggregation"
+
+	// DefaultRBACMode is used when neither the Kro instance nor the ProviderConfig sets a mode.
+	DefaultRBACMode = RBACModeUnrestricted
+)
+
 // KroSpec defines the desired state of Kro
 type KroSpec struct {
 	// Version is the version of the controller to install
 	Version string `json:"version"`
+
+	// RBACMode sets the `rbac.mode` Helm value of the kro chart. When unset, the
+	// value from the ProviderConfig's helmValues is used, falling back to unrestricted.
+	// The provider may lock the mode per version, in which case only that mode is accepted.
+	// +optional
+	RBACMode RBACMode `json:"rbacMode,omitempty"`
 }
 
 // KroStatus defines the observed state of Kro.
