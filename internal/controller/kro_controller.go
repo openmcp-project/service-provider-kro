@@ -281,7 +281,7 @@ func logRBACMode(ctx context.Context, svcobj *apiv1alpha1.Kro, mode apiv1alpha1.
 	if mode != apiv1alpha1.RBACModeUnrestricted {
 		return
 	}
-	l.Info("DEPRECATION: rbac mode \"unrestricted\" is deprecated and the default will change to \"aggregation\" in a future release; "+
+	l.Info("DEPRECATION: rbac mode default value \"unrestricted\" is deprecated and it will change to \"aggregation\" in a future release; "+
 		"update your RBAC so kro works in aggregation mode, then set rbac.mode to \"aggregation\" in the ProviderConfig helmValues",
 		"name", svcobj.Name, "namespace", svcobj.Namespace)
 }
