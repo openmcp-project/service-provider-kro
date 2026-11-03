@@ -38,6 +38,10 @@ const (
 // offered by the ProviderConfig.
 var ErrVersionNotAvailable = fmt.Errorf("%w: requested version is not available", ctrlerrors.ErrInvalidUserInput)
 
+// ErrRBACModeLocked indicates that Kro.Spec.RBACMode requests a mode other than the one
+// a version with LockRBACMode enforces.
+var ErrRBACModeLocked = fmt.Errorf("%w: rbac mode is locked by the provider config", ctrlerrors.ErrInvalidUserInput)
+
 // ProviderConfigSpec defines the desired state of ProviderConfig
 type ProviderConfigSpec struct {
 	// Versions enumerates the kro versions that tenants may request through
@@ -83,6 +87,11 @@ type KroVersion struct {
 	// namespace into the kro namespace on the control plane.
 	// +optional
 	HelmValues *apiextensionsv1.JSON `json:"helmValues,omitempty"`
+
+	// LockRBACMode pins the RBAC mode of this version, rejecting a Kro.Spec.RBACMode that differs.
+	// The pinned mode is `rbac.mode` from HelmValues, or unrestricted if HelmValues does not set it.
+	// +optional
+	LockRBACMode bool `json:"lockRBACMode,omitempty"`
 }
 
 // ProviderConfigStatus defines the observed state of ProviderConfig.

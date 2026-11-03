@@ -28,6 +28,7 @@ import (
 	libutils "github.com/openmcp-project/openmcp-operator/lib/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -43,6 +44,12 @@ import (
 	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider/clusteraccess"
 
 	apiv1alpha1 "github.com/openmcp-project/service-provider-kro/api/v1alpha1"
+)
+
+const (
+	testKroName      = "mcp-01"
+	testKroNamespace = "tenant"
+	testKroVersion   = "0.9.3"
 )
 
 func TestResourceStatus(t *testing.T) {
@@ -144,7 +151,7 @@ func TestCreateOciRepository_SecretRefs(t *testing.T) {
 				ChartURL:        ptr.To("oci://registry.k8s.io/kro/charts/kro"),
 				ChartPullSecret: tc.chartPullSecret,
 			}
-			repo := createOciRepository(version, "tenant")
+			repo := createOciRepository(version, testKroNamespace)
 
 			// The chart tag comes from ChartVersion, not from the tenant facing Version.
 			assert.Equal(t, "1.2.3", repo.Spec.Reference.Tag)
@@ -161,12 +168,12 @@ func TestCreateOciRepository_SecretRefs(t *testing.T) {
 
 func TestCreateOrUpdate_UnknownVersion(t *testing.T) {
 	obj := &apiv1alpha1.Kro{
-		ObjectMeta: metav1.ObjectMeta{Name: "mcp-01", Namespace: "tenant"},
+		ObjectMeta: metav1.ObjectMeta{Name: testKroName, Namespace: testKroNamespace},
 		Spec:       apiv1alpha1.KroSpec{Version: "9.9.9"},
 	}
 	pc := &apiv1alpha1.ProviderConfig{
 		Spec: apiv1alpha1.ProviderConfigSpec{
-			Versions: []apiv1alpha1.KroVersion{{Version: "0.9.3", ChartVersion: "0.9.3"}},
+			Versions: []apiv1alpha1.KroVersion{{Version: testKroVersion, ChartVersion: testKroVersion}},
 		},
 	}
 	r := &KroReconciler{}
@@ -186,13 +193,42 @@ func TestCreateOrUpdate_UnknownVersion(t *testing.T) {
 	assert.Contains(t, cond.Message, "available versions are: 0.9.3")
 }
 
+func TestCreateOrUpdate_LockedRBACMode(t *testing.T) {
+	obj := &apiv1alpha1.Kro{
+		ObjectMeta: metav1.ObjectMeta{Name: testKroName, Namespace: testKroNamespace},
+		Spec:       apiv1alpha1.KroSpec{Version: testKroVersion, RBACMode: apiv1alpha1.RBACModeUnrestricted},
+	}
+	pc := &apiv1alpha1.ProviderConfig{
+		Spec: apiv1alpha1.ProviderConfigSpec{
+			Versions: []apiv1alpha1.KroVersion{{
+				Version:      testKroVersion,
+				ChartVersion: testKroVersion,
+				HelmValues:   &apiextensionsv1.JSON{Raw: []byte(`{"rbac":{"mode":"aggregation"}}`)},
+				LockRBACMode: true,
+			}},
+		},
+	}
+	r := &KroReconciler{}
+
+	res, err := r.CreateOrUpdate(context.Background(), obj, pc, clusteraccess.ClusterContext{})
+	require.NoError(t, err)
+	assert.Zero(t, res.RequeueAfter)
+	assert.Equal(t, spruntime.StatusPhaseProgressing, obj.Status.Phase)
+
+	cond := apimeta.FindStatusCondition(obj.Status.Conditions, spruntime.ServiceProviderConditionReady)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, conditionReasonError, cond.Reason)
+	assert.Contains(t, cond.Message, `requested "unrestricted", the provider config enforces "aggregation"`)
+}
+
 func TestDelete_VersionRemovedFromProviderConfig(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, clientgoscheme.AddToScheme(scheme))
 	require.NoError(t, sourcev1.AddToScheme(scheme))
 	require.NoError(t, helmv2.AddToScheme(scheme))
 
-	tenantNamespace, err := libutils.StableMCPNamespace("mcp-01", "tenant")
+	tenantNamespace, err := libutils.StableMCPNamespace(testKroName, testKroNamespace)
 	require.NoError(t, err)
 
 	platformClient := fake.NewClientBuilder().
@@ -204,8 +240,8 @@ func TestDelete_VersionRemovedFromProviderConfig(t *testing.T) {
 		Build()
 
 	obj := &apiv1alpha1.Kro{
-		ObjectMeta: metav1.ObjectMeta{Name: "mcp-01", Namespace: "tenant"},
-		Spec:       apiv1alpha1.KroSpec{Version: "0.9.3"},
+		ObjectMeta: metav1.ObjectMeta{Name: testKroName, Namespace: testKroNamespace},
+		Spec:       apiv1alpha1.KroSpec{Version: testKroVersion},
 	}
 	r := &KroReconciler{PlatformCluster: clusters.NewTestClusterFromClient("platform", platformClient)}
 	clusterCtx := clusteraccess.ClusterContext{MCPCluster: fakeMCPCluster(t, 0, nil)}
@@ -243,7 +279,7 @@ func TestDelete_RequeuesWhileObjectsRemain(t *testing.T) {
 		}).
 		Build()
 
-	obj := &apiv1alpha1.Kro{ObjectMeta: metav1.ObjectMeta{Name: "mcp-01", Namespace: "tenant"}}
+	obj := &apiv1alpha1.Kro{ObjectMeta: metav1.ObjectMeta{Name: testKroName, Namespace: testKroNamespace}}
 	r := &KroReconciler{PlatformCluster: clusters.NewTestClusterFromClient("platform", platformClient)}
 	clusterCtx := clusteraccess.ClusterContext{MCPCluster: fakeMCPCluster(t, 0, nil)}
 
@@ -321,7 +357,7 @@ func TestCountResourceGraphDefinitions(t *testing.T) {
 
 func TestDelete_BlockedByResourceGraphDefinitions(t *testing.T) {
 	obj := &apiv1alpha1.Kro{
-		ObjectMeta: metav1.ObjectMeta{Name: "mcp-01", Namespace: "tenant"},
+		ObjectMeta: metav1.ObjectMeta{Name: testKroName, Namespace: testKroNamespace},
 	}
 	r := &KroReconciler{}
 	clusterCtx := clusteraccess.ClusterContext{MCPCluster: fakeMCPCluster(t, 2, nil)}

@@ -10,9 +10,10 @@ An [OpenControlPlane](https://github.com/openmcp-project) Service Provider that 
 When a `Kro` resource is created on the onboarding cluster, the controller:
 
 1. Resolves `spec.version` from the `Kro` resource against `spec.versions` in the `ProviderConfig`, which yields the chart URL, chart version, pull secret, and Helm values for that version
-2. Replicates the version's chart pull secret into the tenant namespace and wires it into the `OCIRepository`
-3. Creates a Flux `OCIRepository` pointing at the resolved chart URL and chart version
-4. Creates a Flux `HelmRelease` that deploys the chart into `kro-system` on the workload cluster via a kubeconfig reference
+2. Resolves the effective `rbac.mode` of the kro chart from `spec.rbacMode`, the version's Helm values, and the `unrestricted` default, in that order
+3. Replicates the version's chart pull secret into the tenant namespace and wires it into the `OCIRepository`
+4. Creates a Flux `OCIRepository` pointing at the resolved chart URL and chart version
+5. Creates a Flux `HelmRelease` that deploys the chart into `kro-system` on the workload cluster via a kubeconfig reference
 
 ## API Reference
 
@@ -27,16 +28,25 @@ metadata:
   name: mcp-01 # must match your MCP cluster so it will track the right cluster
 spec:
   version: v0.9.3
+  rbacMode: aggregation
 ```
 
-| Field          | Type     | Required | Description                                                                                            |
-| -------------- | -------- | -------- | ------------------------------------------------------------------------------------------------------ |
-| `spec.version` | `string` | yes      | The version to install. Must be one of the versions offered by `spec.versions` in the `ProviderConfig` |
+| Field           | Type     | Required | Description                                                                                                                                                                                         |
+|-----------------|----------|----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `spec.version`  | `string` | yes      | The version to install. Must be one of the versions offered by `spec.versions` in the `ProviderConfig`                                                                                              |
+| `spec.rbacMode` | `string` | no       | The kro [RBAC mode](https://kro.run/docs/advanced/access-control), `unrestricted` or `aggregation`. When unset, `rbac.mode` from the version's `helmValues` is used, falling back to `unrestricted` |
 
 _Note_: Any version a tenant may request has to be defined in the `ProviderConfig`. Requesting a
 version that is not on offer leaves the resource in phase `Progressing` with the `Ready` condition
 set to `False`, reason `ReconcileError`, and the available versions listed in its message. Nothing
 progresses until the `Kro` resource or the `ProviderConfig` is corrected.
+
+_Note_: If the version sets `lockRBACMode` in the `ProviderConfig`, `spec.rbacMode` must be unset or match
+the locked mode. A differing mode is rejected the same way as an unknown version.
+
+_Note_: The `unrestricted` RBAC mode is deprecated. The default will change to `aggregation` in a future
+release. While an instance runs with `unrestricted`, the controller logs a deprecation warning on every
+reconcile. Update your RBAC so kro works in `aggregation` mode before the default changes.
 
 _Note_: The name of the object _**MUST**_ match the name of your MCP cluster offering. This
 ensures that only one installation can exist for a given cluster.
@@ -62,14 +72,18 @@ spec:
       chartVersion: "0.9.3"
       chartURL: oci://registry.k8s.io/kro/charts/kro
       chartPullSecret: my-registry-secret
+      lockRBACMode: true
       helmValues:
         # See https://github.com/kubernetes-sigs/kro/blob/main/helm/values.yaml
         # for all available configuration options including:
-        # - rbac.mode: "unrestricted" (default) or "aggregation", see https://kro.run/docs/advanced/access-control
+        # - rbac.mode: "unrestricted" (default) or "aggregation", see https://kro.run/docs/advanced/access-control.
+        #   Tenants may override it through Kro.spec.rbacMode unless lockRBACMode is set.
         # - deployment.resources: CPU/memory limits and requests
         # - config.resourceGraphDefinitionConcurrentReconciles: parallel RGD reconcilers
         # - config.dynamicControllerConcurrentReconciles: parallel dynamic controller reconcilers
         # - config.logLevel: "info", "debug", etc.
+        rbac:
+          mode: aggregation
         imagePullSecrets:
           - name: my-registry-secret
 ```
@@ -90,6 +104,7 @@ A version item is defined as follows:
 | `chartURL`        | `string` | no       | `oci://registry.k8s.io/kro/charts/kro` | OCI URL of the Helm chart (`oci://` prefix is added automatically if missing)                                                                                                         |
 | `chartPullSecret` | `string` | no       | —                                      | Name of a secret in the controller's namespace to replicate into the tenant namespace and set as `secretRef` on the `OCIRepository`. Must be of type `kubernetes.io/dockerconfigjson` |
 | `helmValues`      | `object` | no       | —                                      | Arbitrary Helm values passed directly to the HelmRelease. Secrets under `imagePullSecrets` are replicated into the kro namespace on the control plane                                 |
+| `lockRBACMode`    | `bool`   | no       | `false`                                | Pins the RBAC mode to `rbac.mode` from `helmValues`, or `unrestricted` if that is unset. A `Kro` requesting a different `spec.rbacMode` is rejected                                   |
 
 Because every artifact is declared per version, two versions can point at different registries,
 use different pull secrets, or have different Helm values.

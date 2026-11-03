@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/openmcp-project/openmcp-testing/pkg/clusterutils"
 	"github.com/openmcp-project/openmcp-testing/pkg/conditions"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/e2e-framework/klient/wait"
@@ -75,6 +77,47 @@ func TestServiceProvider(t *testing.T) {
 			}
 			if err := wait.For(conditions.Match(ociRepo, config, "Ready", corev1.ConditionTrue), wait.WithTimeout(2*time.Minute)); err != nil {
 				t.Errorf("OCIRepository not ready: %v", err)
+			}
+
+			return ctx
+		}).
+		Assess("verify the requested rbac mode reaches kro", func(ctx context.Context, t *testing.T, config *envconf.Config) context.Context {
+			tenantNamespace, err := libutils.StableMCPNamespace(mcpName, "default")
+			if err != nil {
+				t.Errorf("failed to get tenant namespace: %v", err)
+				return ctx
+			}
+
+			helmRelease := &helmv2.HelmRelease{}
+			if err := config.Client().Resources().Get(ctx, "kro-helm-release", tenantNamespace, helmRelease); err != nil {
+				t.Errorf("failed to get HelmRelease: %v", err)
+				return ctx
+			}
+			var values struct {
+				RBAC struct {
+					Mode string `json:"mode"`
+				} `json:"rbac"`
+			}
+			if helmRelease.Spec.Values == nil {
+				t.Errorf("HelmRelease has no values, want rbac.mode %q", apiv1alpha1.RBACModeAggregation)
+				return ctx
+			}
+			if err := json.Unmarshal(helmRelease.Spec.Values.Raw, &values); err != nil {
+				t.Errorf("failed to parse HelmRelease values: %v", err)
+				return ctx
+			}
+			if values.RBAC.Mode != string(apiv1alpha1.RBACModeAggregation) {
+				t.Errorf("HelmRelease rbac.mode is %q, want %q", values.RBAC.Mode, apiv1alpha1.RBACModeAggregation)
+			}
+
+			// The chart only renders this ClusterRole in aggregation mode.
+			mcpConfig, err := clusterutils.MCPConfig(ctx, config, mcpName)
+			if err != nil {
+				t.Errorf("failed to get MCP config: %v", err)
+				return ctx
+			}
+			if err := mcpConfig.Client().Resources().Get(ctx, "kro:controller", "", &rbacv1.ClusterRole{}); err != nil {
+				t.Errorf("failed to get aggregation ClusterRole kro:controller from MCP: %v", err)
 			}
 
 			return ctx

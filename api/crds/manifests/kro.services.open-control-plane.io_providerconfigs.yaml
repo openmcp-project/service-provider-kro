@@ -76,6 +76,11 @@ spec:
                         Secrets referenced under `imagePullSecrets` are replicated from the controller's
                         namespace into the kro namespace on the control plane.
                       x-kubernetes-preserve-unknown-fields: true
+                    lockRBACMode:
+                      description: |-
+                        LockRBACMode pins the RBAC mode of this version, rejecting a Kro.Spec.RBACMode that differs.
+                        The pinned mode is `rbac.mode` from HelmValues, or unrestricted if HelmValues does not set it.
+                      type: boolean
                     version:
                       description: Version is the kro version to install.
                       type: string
