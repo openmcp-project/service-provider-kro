@@ -25,7 +25,8 @@ The domain service API. Created on the onboarding cluster, one per tenant.
 apiVersion: kro.services.open-control-plane.io/v1alpha1
 kind: Kro
 metadata:
-  name: mcp-01 # must match your MCP cluster so it will track the right cluster
+  name: mcp-01 # must match the name of your ControlPlane (kubectl get controlplanes on the onboarding cluster)
+  namespace: default
 spec:
   version: v0.9.3
   rbacMode: aggregation
@@ -48,7 +49,7 @@ _Note_: The `unrestricted` RBAC mode is deprecated. The default will change to `
 release. While an instance runs with `unrestricted`, the controller logs a deprecation warning on every
 reconcile. Update your RBAC so kro works in `aggregation` mode before the default changes.
 
-_Note_: The name of the object _**MUST**_ match the name of your MCP cluster offering. This
+_Note_: The name of the object _**MUST**_ match the name of your ControlPlane (`kubectl get controlplanes` on the onboarding cluster), and it must live in the same namespace. This
 ensures that only one installation can exist for a given cluster.
 
 ### ProviderConfig
@@ -136,13 +137,14 @@ task test-e2e
 | Custom CA support                 |   ✅   | Not required for kro. The platform-cluster Flux instance is assumed to be preconfigured with the necessary CA bundles for chart pulls, so no `certSecretRef` is set on the `OCIRepository`. Custom CA bundles are only needed for workloads running on the `ControlPlane` that reach private endpoints themselves (e.g. crossplane's pods pulling provider images); kro's controller has no such need. |
 | Release artifacts (image + OCM)   |   ✅   |                                                                                                                                                                                                                                                                                                                                                            |
 | Testing                           |   ✅   |                                                                                                                                                                                                                                                                                                                                                            |
+| Private OCI registry support      |   ✅   | The version's `chartPullSecret` is replicated into the tenant namespace and set as `secretRef` on the Flux `OCIRepository`; secrets listed under `imagePullSecrets` in `helmValues` are replicated into the kro namespace on the `ControlPlane`. |
 | Ownership and maintenance docs    |   ✅   |                                                                                                                                                                                                                                                                                                                                                            |
 
 See the [OpenControlPlane Quality Criteria](https://open-control-plane.io/developers/serviceprovider/quality-criteria) for definitions.
 
 ## Support, Feedback, Contributing
 
-This project is open to feature requests/suggestions, bug reports etc. via [GitHub issues](https://github.com/openmcp-project/service-provider-kro/issues). Contribution and feedback are encouraged and always welcome. For more information about how to contribute, the project structure, as well as additional contribution information, see our [Contribution Guidelines](CONTRIBUTING.md).
+This project is open to feature requests/suggestions, bug reports etc. via [GitHub issues](https://github.com/openmcp-project/service-provider-kro/issues). Contribution and feedback are encouraged and always welcome. For more information about how to contribute, the project structure, as well as additional contribution information, see our [Contribution Guidelines](https://github.com/openmcp-project/.github/blob/main/CONTRIBUTING.md).
 
 ## Security / Disclosure
 
