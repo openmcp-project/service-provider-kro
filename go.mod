@@ -11,7 +11,7 @@ require (
 	github.com/openmcp-project/openmcp-operator/api v1.4.4
 	github.com/openmcp-project/openmcp-operator/lib v1.4.4
 	github.com/openmcp-project/openmcp-testing v1.4.2
-	github.com/spf13/pflag v1.0.10
+	github.com/spf13/pflag v1.1.0
 	github.com/stretchr/testify v1.12.1
 	k8s.io/api v0.37.2
 	k8s.io/apiextensions-apiserver v0.37.2
