@@ -15,6 +15,20 @@ When a `Kro` resource is created on the onboarding cluster, the controller:
 4. Creates a Flux `OCIRepository` pointing at the resolved chart URL and chart version
 5. Creates a Flux `HelmRelease` that deploys the chart into `kro-system` on the workload cluster via a kubeconfig reference
 
+## FIPS 140-3
+
+The provider's release build enables FIPS support by default, using
+[Microsoft Go's `systemcrypto` backend and Garden Linux's FIPS OpenSSL provider](https://github.com/openmcp-project/build/pull/160).
+No separate FIPS image is required.
+
+In the provider's startup logs, check `FIPS 140 verification started` for
+`fipsEnforcedByBuild="true"` and `fips140.Enabled=true`. FIPS builds exit with an error
+if FIPS mode is disabled.
+
+This applies to **the provider, not the Kro controller it installs**. The selected
+Kro image, its configuration, and the host environment must be assessed separately;
+the provider's FIPS build does not make the workload or whole deployment FIPS compliant.
+
 ## API Reference
 
 ### Kro
