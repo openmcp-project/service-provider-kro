@@ -11,5 +11,5 @@ permissions:
 
 jobs:
   release_tag:
-    uses: openmcp-project/build/.github/workflows/release.lib.yaml@fd9dd7d9a651bbbe17d625a406929cdabc883097 # main
+    uses: openmcp-project/build/.github/workflows/release.lib.yaml@ec5526eaa1260b3855d95660f59f80ed6ad41e87 # main
     secrets: inherit
